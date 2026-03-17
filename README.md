@@ -24,7 +24,21 @@ Then:
 - **Basic Information** → copy **Signing Secret**
 - **Basic Information** → **App-Level Tokens** → Generate token with `connections:write` scope → copy (`xapp-...`)
 
-### 2. Configure
+### 2. Get Anthropic API Key
+
+The bot uses the Claude Code CLI, which authenticates via your **Claude subscription** (Claude Max or Claude Pro), not a pay-per-token API key.
+
+Run the CLI login once on the machine that will host the bot:
+
+```bash
+claude login
+```
+
+This opens a browser to authenticate with your Claude account. After login, credentials are stored locally and the CLI uses them automatically.
+
+> **Note:** `ANTHROPIC_API_KEY` in `.env` is only needed if you want to use a raw Anthropic API key instead. Leave it blank if you're using `claude login`.
+
+### 3. Configure
 
 ```bash
 cp .env.example .env
@@ -32,11 +46,11 @@ cp .env.example .env
 #   SLACK_BOT_TOKEN=xoxb-...
 #   SLACK_APP_TOKEN=xapp-...
 #   SLACK_SIGNING_SECRET=...
-#   ANTHROPIC_API_KEY=sk-ant-...
 #   DEFAULT_CWD=/path/to/your/projects
+# ANTHROPIC_API_KEY is not needed if you ran `claude login`
 ```
 
-### 3. Install & Run
+### 4. Install & Run
 
 ```bash
 npm install
@@ -45,7 +59,7 @@ npm run dev    # Development (tsx, auto-reload)
 npm run build && npm start  # Production
 ```
 
-### 4. Use
+### 5. Use
 
 - **DM the bot** — send any coding task
 - **@mention in a channel** — `@Claude Code fix the login bug`
@@ -82,7 +96,7 @@ In **ask mode** (default), Claude will post an interactive message with Approve/
 | `SLACK_BOT_TOKEN` | Yes | Bot token (`xoxb-...`) |
 | `SLACK_APP_TOKEN` | Yes | App token for Socket Mode (`xapp-...`) |
 | `SLACK_SIGNING_SECRET` | Yes | Signing secret |
-| `ANTHROPIC_API_KEY` | Yes | Anthropic API key |
+| `ANTHROPIC_API_KEY` | No* | Anthropic API key — not needed if authenticated via `claude login` |
 | `DEFAULT_CWD` | No | Default working directory |
 | `ALLOWED_USER_IDS` | No | Comma-separated allowed Slack user IDs |
 | `ALLOWED_CHANNEL_IDS` | No | Comma-separated allowed channel IDs |
