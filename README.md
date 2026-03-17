@@ -51,6 +51,14 @@ npm run build && npm start  # Production
 - **@mention in a channel** — `@Claude Code fix the login bug`
 - **Reply in thread** — continue the conversation with full context
 
+## Interrupting a Running Query
+
+While Claude is working, you have three ways to stop it — just like pressing Esc or Ctrl+C in a terminal:
+
+1. **Stop button** — A red Stop button appears in the thread whenever a query is running. Tap it to interrupt immediately. The button disappears when the query finishes.
+2. **Emoji reaction** — React with :octagonal_sign: (`:octagonal_sign:`) on any message in the thread. Great from mobile — long-press a message, tap the stop sign emoji.
+3. **Slash command** — Type `/stop` in the thread.
+
 ## Commands
 
 | Command | Description |
@@ -80,6 +88,28 @@ In **ask mode** (default), Claude will post an interactive message with Approve/
 | `ALLOWED_CHANNEL_IDS` | No | Comma-separated allowed channel IDs |
 | `SESSION_TIMEOUT_MINUTES` | No | Idle session cleanup (default: 30) |
 | `MESSAGE_UPDATE_INTERVAL_MS` | No | Streaming update interval (default: 1500) |
+
+## Error Handling
+
+The bot handles failures gracefully and always reports status back to the Slack thread:
+
+| Scenario | What happens |
+|---|---|
+| **Invalid API key / auth failure** | :key: Error posted with setup instructions. No retry. |
+| **Rate limited (Anthropic)** | :hourglass: Auto-retries up to 2x with exponential backoff. |
+| **Rate limited (Slack)** | Backs off per `retry_after` header, resumes streaming. |
+| **Internet outage / network error** | :cloud: Auto-retries. If all retries fail, error posted. |
+| **API credits exhausted** | :credit_card: Error posted with link to Anthropic console. |
+| **Context too long** | :scroll: Suggests starting a new thread. |
+| **Claude CLI not installed** | :wrench: Detected at startup — process exits with install instructions. |
+| **API overloaded (529)** | :fire: Auto-retries. Error posted if persistent. |
+| **Slack disconnect** | Socket Mode auto-reconnects (built into `@slack/bolt`). |
+| **Mid-stream failure** | Stop button cleaned up, error posted, hourglass swapped for :x:. |
+
+On startup, the bot runs health checks:
+- Verifies `claude` CLI is installed
+- Confirms `ANTHROPIC_API_KEY` is set
+- Warns if `DEFAULT_CWD` doesn't exist
 
 ## Architecture
 

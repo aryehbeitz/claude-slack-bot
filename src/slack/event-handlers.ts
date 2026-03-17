@@ -95,7 +95,7 @@ export function registerEventHandlers(
       await client.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,
-        text: ':warning: A query is already running in this thread. Use `/stop` to cancel it first.',
+        text: ':warning: A query is already running in this thread. Tap the Stop button or react with :octagonal_sign: to cancel it.',
       });
       return;
     }

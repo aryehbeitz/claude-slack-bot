@@ -13,16 +13,48 @@ export class MessageQueue {
     private updateIntervalMs: number
   ) {}
 
-  /** Start a new streaming message in a thread */
+  /** Start a new streaming message in a thread, with a Stop control button */
   async startMessage(
     threadKey: string,
     channelId: string,
     threadTs: string
   ): Promise<void> {
+    // Post the streaming content message
     const result = await this.slackClient.chat.postMessage({
       channel: channelId,
       thread_ts: threadTs,
       text: ':hourglass_flowing_sand: Thinking...',
+    });
+
+    // Post a separate control message with Stop button
+    const controlResult = await this.slackClient.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: 'Running... tap Stop to interrupt',
+      blocks: [
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: ':large_blue_circle: *Running* — tap Stop to interrupt, or react with :octagonal_sign: on any message',
+            },
+          ],
+        },
+        {
+          type: 'actions',
+          block_id: `stop_actions_${threadKey}`,
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: ':stop_sign: Stop' },
+              style: 'danger',
+              action_id: `stop_query_${threadKey}`,
+              value: threadKey,
+            },
+          ],
+        },
+      ],
     });
 
     this.buffers.set(threadKey, {
@@ -30,6 +62,7 @@ export class MessageQueue {
       channelId,
       threadTs,
       messageTs: result.ts,
+      controlMessageTs: controlResult.ts,
       content: '',
       dirty: false,
       charCount: 0,
@@ -99,6 +132,8 @@ export class MessageQueue {
     const buffer = this.buffers.get(threadKey);
     if (!buffer) return;
 
+    await this.removeControlMessage(buffer);
+
     // Swap reactions
     try {
       await this.slackClient.reactions.remove({
@@ -126,6 +161,8 @@ export class MessageQueue {
     const buffer = this.buffers.get(threadKey);
     if (!buffer) return;
 
+    await this.removeControlMessage(buffer);
+
     await this.slackClient.chat.postMessage({
       channel: buffer.channelId,
       thread_ts: buffer.threadTs,
@@ -150,6 +187,34 @@ export class MessageQueue {
     } catch {}
 
     this.buffers.delete(threadKey);
+  }
+
+  /** Delete the Stop button control message (cleanup after run finishes) */
+  private async removeControlMessage(buffer: MessageBuffer): Promise<void> {
+    if (!buffer.controlMessageTs) return;
+    try {
+      await this.slackClient.chat.delete({
+        channel: buffer.channelId,
+        ts: buffer.controlMessageTs,
+      });
+    } catch {
+      // If delete fails (permissions), update it to show completed
+      try {
+        await this.slackClient.chat.update({
+          channel: buffer.channelId,
+          ts: buffer.controlMessageTs,
+          text: 'Completed',
+          blocks: [
+            {
+              type: 'context',
+              elements: [
+                { type: 'mrkdwn', text: ':white_check_mark: *Completed*' },
+              ],
+            },
+          ],
+        });
+      } catch {}
+    }
   }
 
   private async flushBuffer(threadKey: string): Promise<void> {
@@ -199,8 +264,22 @@ export class MessageQueue {
           ts: buffer.messageTs,
           text,
         });
-      } catch (err) {
-        console.error('[message-queue] Failed to update message:', err);
+      } catch (err: any) {
+        // Handle Slack rate limits: back off and re-mark dirty so next tick retries
+        if (err?.data?.error === 'ratelimited' || err?.code === 429) {
+          const retryAfter = (err?.data?.response_metadata?.retry_after || 3) * 1000;
+          console.warn(`[message-queue] Slack rate limited, retrying in ${retryAfter}ms`);
+          buffer.dirty = true;
+          if (!this.timers.has(threadKey)) {
+            const timer = setTimeout(
+              () => this.flushBuffer(threadKey),
+              retryAfter
+            );
+            this.timers.set(threadKey, timer);
+          }
+        } else {
+          console.error('[message-queue] Failed to update message:', err);
+        }
       }
     }
   }

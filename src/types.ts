@@ -25,6 +25,7 @@ export interface MessageBuffer {
   channelId: string;
   threadTs: string;
   messageTs?: string;
+  controlMessageTs?: string; // "Running... [Stop]" message, deleted on complete
   content: string;
   dirty: boolean;
   charCount: number;

@@ -2,6 +2,7 @@ import { query, type MessageEvent } from '@anthropic-ai/claude-code';
 import { ClaudeSession, Config } from '../types';
 import { PermissionHandler } from './permission-handler';
 import { SessionManager } from './session-manager';
+import { classifyError, withRetry } from '../utils/errors';
 
 export interface QueryCallbacks {
   onText: (text: string) => void;
@@ -45,10 +46,10 @@ export class QueryRunner {
         (options as any).permissionPromptToolName = 'Claude Slack Bot';
       }
 
-      const result = await query({
-        prompt,
-        options: options as any,
-      });
+      const result = await withRetry(
+        () => query({ prompt, options: options as any }),
+        { maxRetries: 2, baseDelayMs: 2000, signal: session.abortController.signal }
+      );
 
       // Process the result messages
       let resultText = '';
@@ -98,11 +99,14 @@ export class QueryRunner {
 
       callbacks.onComplete(resultText);
     } catch (err: any) {
-      if (err.name === 'AbortError' || session.abortController.signal.aborted) {
-        callbacks.onError(new Error('Query was stopped'));
-      } else {
-        callbacks.onError(err);
-      }
+      const classified = classifyError(err);
+      console[classified.logLevel](
+        `[query-runner] ${classified.emoji} ${classified.userMessage}`,
+        err?.message || err
+      );
+      callbacks.onError(
+        new Error(`${classified.emoji} ${classified.userMessage}`)
+      );
     } finally {
       this.sessionManager.setRunning(session.threadKey, false);
     }
