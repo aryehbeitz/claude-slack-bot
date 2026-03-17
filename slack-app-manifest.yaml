@@ -1,3 +1,6 @@
+_metadata:
+  major_version: 1
+  minor_version: 1
 display_information:
   name: Claude Code Bot
   description: Send coding tasks to Claude Code from Slack
@@ -6,7 +9,6 @@ display_information:
     A Slack bot that lets you send coding tasks to Claude Code, get streaming
     results back in threads, approve tool use via interactive buttons, and
     manage multiple concurrent sessions — all from your phone or tablet.
-
 features:
   bot_user:
     display_name: Claude Code
@@ -28,26 +30,24 @@ features:
     - command: /stop
       description: Stop the currently running query
       should_escape: false
-
 oauth_config:
   scopes:
     bot:
-      - app_mentions:read
-      - channels:history
-      - channels:read
-      - chat:delete
-      - chat:write
-      - commands
-      - files:read
-      - groups:history
-      - groups:read
-      - im:history
-      - im:read
-      - im:write
-      - reactions:read
-      - reactions:write
-      - users:read
-
+      - "app_mentions:read"
+      - "channels:history"
+      - "channels:read"
+      - "chat:delete"
+      - "chat:write"
+      - "commands"
+      - "files:read"
+      - "groups:history"
+      - "groups:read"
+      - "im:history"
+      - "im:read"
+      - "im:write"
+      - "reactions:read"
+      - "reactions:write"
+      - "users:read"
 settings:
   event_subscriptions:
     bot_events:
