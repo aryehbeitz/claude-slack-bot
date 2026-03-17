@@ -98,6 +98,7 @@ export class FileHandler {
   ): Promise<string> {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30_000), // (#7)
     });
 
     if (!response.ok) {
@@ -113,6 +114,7 @@ export class FileHandler {
   private async downloadText(url: string, token: string): Promise<string> {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30_000), // (#7)
     });
 
     if (!response.ok) {

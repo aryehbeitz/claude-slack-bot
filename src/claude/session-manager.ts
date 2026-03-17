@@ -74,9 +74,22 @@ export class SessionManager {
     }
   }
 
+  /** Atomically claim the running slot. Returns false if already running. (#3, #4) */
+  claimRunning(threadKey: string): boolean {
+    const session = this.sessions.get(threadKey);
+    if (!session || session.isRunning) return false;
+    session.isRunning = true;
+    session.abortController = new AbortController();
+    return true;
+  }
+
   setRunning(threadKey: string, running: boolean) {
     const session = this.sessions.get(threadKey);
     if (session) {
+      if (running && session.isRunning) {
+        // Abort orphaned controller before replacing (#4)
+        session.abortController.abort();
+      }
       session.isRunning = running;
       if (running) {
         session.abortController = new AbortController();

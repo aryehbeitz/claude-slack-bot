@@ -17,7 +17,7 @@ export function markdownToMrkdwn(text: string): string {
   );
 }
 
-/** Chunk text to fit Slack message limits */
+/** Chunk text to fit Slack message limits, keeping code fences intact (#8) */
 export function chunkText(text: string, maxLen = MAX_MESSAGE_LENGTH): string[] {
   if (text.length <= maxLen) return [text];
 
@@ -32,14 +32,23 @@ export function chunkText(text: string, maxLen = MAX_MESSAGE_LENGTH): string[] {
     // Try to break at newline
     let breakIdx = remaining.lastIndexOf('\n', maxLen);
     if (breakIdx < maxLen * 0.5) {
-      // If no good newline break, break at space
       breakIdx = remaining.lastIndexOf(' ', maxLen);
     }
     if (breakIdx < maxLen * 0.3) {
       breakIdx = maxLen;
     }
-    chunks.push(remaining.slice(0, breakIdx));
-    remaining = remaining.slice(breakIdx);
+
+    const chunk = remaining.slice(0, breakIdx);
+    // Count ``` fence markers at start of line — odd count means we're inside a fence
+    const fenceCount = (chunk.match(/^```/gm) || []).length;
+    if (fenceCount % 2 !== 0) {
+      // Close the fence in this chunk and reopen in the next
+      chunks.push(chunk + '\n```');
+      remaining = '```\n' + remaining.slice(breakIdx);
+    } else {
+      chunks.push(chunk);
+      remaining = remaining.slice(breakIdx);
+    }
   }
 
   return chunks;

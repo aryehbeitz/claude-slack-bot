@@ -59,11 +59,10 @@ export function registerActionHandlers(
     const channelId = reaction.item?.channel;
     if (!channelId) return;
 
-    // Find any running session in this channel
-    const activeSessions = sessionManager.listActive();
-    const session = activeSessions.find((s) => s.channelId === channelId);
+    // Stop all active sessions in this channel (#10: was only stopping first)
+    const channelSessions = sessionManager.listActive().filter((s) => s.channelId === channelId);
 
-    if (session) {
+    for (const session of channelSessions) {
       const aborted = sessionManager.abort(session.threadKey);
       if (aborted) {
         console.log(`[action] Query stopped by <@${reaction.user}> via :octagonal_sign: reaction`);

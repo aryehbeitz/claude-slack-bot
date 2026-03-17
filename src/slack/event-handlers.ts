@@ -8,7 +8,7 @@ import { handleInlineCommand } from './commands';
 import { formatToolUse } from './formatter';
 import { Config } from '../types';
 
-export function registerEventHandlers(
+export async function registerEventHandlers(
   app: App,
   sessionManager: SessionManager,
   queryRunner: QueryRunner,
@@ -17,46 +17,20 @@ export function registerEventHandlers(
   fileHandler: FileHandler,
   config: Config
 ) {
-  let botUserId: string | undefined;
+  // Await bot user ID before registering handlers (#1, #5)
+  const authResult = await app.client.auth.test();
+  const botUserId = authResult.user_id as string;
+  console.log(`[events] Bot user ID: ${botUserId}`);
 
-  // Resolve bot user ID on startup
-  app.client.auth.test().then((res) => {
-    botUserId = res.user_id as string;
-    console.log(`[events] Bot user ID: ${botUserId}`);
-  });
-
-  // Handle direct messages
-  app.event('message', async ({ event, client }) => {
-    const msg = event as any;
-
-    // Skip bot messages, message_changed, etc.
-    if (msg.subtype || msg.bot_id) return;
-    if (!msg.text && !msg.files) return;
-
-    // Skip if this is a channel message that doesn't mention the bot
-    if (msg.channel_type === 'channel' || msg.channel_type === 'group') {
-      if (!msg.text?.includes(`<@${botUserId}>`)) return;
-    }
-
-    // Check allowed users
-    if (
-      config.allowedUserIds.length > 0 &&
-      !config.allowedUserIds.includes(msg.user)
-    ) {
-      return;
-    }
-
-    // Check allowed channels
-    if (
-      config.allowedChannelIds.length > 0 &&
-      !config.allowedChannelIds.includes(msg.channel)
-    ) {
-      return;
-    }
-
-    const channelId = msg.channel;
-    const threadTs = msg.thread_ts || msg.ts;
-    let text = (msg.text || '').replace(`<@${botUserId}>`, '').trim();
+  /** Shared handler for both message and app_mention events (#15) */
+  async function handlePrompt(
+    channelId: string,
+    threadTs: string,
+    rawText: string,
+    files: any[] | undefined,
+    client: typeof app.client
+  ) {
+    let text = rawText.replace(`<@${botUserId}>`, '').trim();
 
     // Handle inline commands
     const cmdResult = handleInlineCommand(
@@ -77,21 +51,18 @@ export function registerEventHandlers(
 
     // Process attached files
     let processedFiles: Awaited<ReturnType<FileHandler['processFiles']>> = [];
-    if (msg.files?.length) {
-      processedFiles = await fileHandler.processFiles(
-        msg.files,
-        config.slackBotToken
-      );
+    if (files?.length) {
+      processedFiles = await fileHandler.processFiles(files, config.slackBotToken);
       text += fileHandler.buildPromptAddition(processedFiles);
     }
 
-    if (!text) return;
+    if (!text) return; // (#9)
 
     // Get or create session
     const session = sessionManager.getOrCreate(channelId, threadTs);
 
-    // Don't run concurrent queries in same thread
-    if (session.isRunning) {
+    // Atomically claim the running slot — eliminates check-then-set race (#3)
+    if (!sessionManager.claimRunning(session.threadKey)) {
       await client.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,
@@ -114,9 +85,7 @@ export function registerEventHandlers(
         messageQueue.postInThread(session.threadKey, formatted).catch(console.error);
       },
 
-      onToolResult(_toolName, _output) {
-        // Tool results are visible in the Claude response, no need to echo
-      },
+      onToolResult(_toolName, _output) {},
 
       async onComplete(resultText) {
         if (resultText) {
@@ -127,13 +96,28 @@ export function registerEventHandlers(
       },
 
       async onError(error) {
-        await messageQueue.error(
-          session.threadKey,
-          error.message || 'Unknown error'
-        );
+        await messageQueue.error(session.threadKey, error.message || 'Unknown error');
         fileHandler.cleanupTempFiles(processedFiles);
       },
     });
+  }
+
+  // Handle direct messages and channel messages
+  app.event('message', async ({ event, client }) => {
+    const msg = event as any;
+
+    if (msg.subtype || msg.bot_id) return;
+    if (!msg.text && !msg.files) return;
+
+    // Skip channel/group messages that don't mention the bot
+    if (msg.channel_type === 'channel' || msg.channel_type === 'group') {
+      if (!msg.text?.includes(`<@${botUserId}>`)) return;
+    }
+
+    if (config.allowedUserIds.length > 0 && !config.allowedUserIds.includes(msg.user)) return;
+    if (config.allowedChannelIds.length > 0 && !config.allowedChannelIds.includes(msg.channel)) return;
+
+    await handlePrompt(msg.channel, msg.thread_ts || msg.ts, msg.text || '', msg.files, client);
   });
 
   // Handle app_mention events (for channels)
@@ -141,72 +125,9 @@ export function registerEventHandlers(
     const msg = event as any;
     if (msg.bot_id) return;
 
-    const channelId = msg.channel;
-    const threadTs = msg.thread_ts || msg.ts;
-    const text = (msg.text || '').replace(`<@${botUserId}>`, '').trim();
+    if (config.allowedUserIds.length > 0 && !config.allowedUserIds.includes(msg.user)) return;
+    if (config.allowedChannelIds.length > 0 && !config.allowedChannelIds.includes(msg.channel)) return;
 
-    if (!text) return;
-
-    // Check allowed users/channels
-    if (
-      config.allowedUserIds.length > 0 &&
-      !config.allowedUserIds.includes(msg.user)
-    )
-      return;
-    if (
-      config.allowedChannelIds.length > 0 &&
-      !config.allowedChannelIds.includes(channelId)
-    )
-      return;
-
-    // Handle inline commands
-    const cmdResult = handleInlineCommand(
-      text,
-      channelId,
-      threadTs,
-      sessionManager,
-      config
-    );
-    if (cmdResult.handled) {
-      await client.chat.postMessage({
-        channel: channelId,
-        thread_ts: threadTs,
-        text: cmdResult.text,
-      });
-      return;
-    }
-
-    const session = sessionManager.getOrCreate(channelId, threadTs);
-
-    if (session.isRunning) {
-      await client.chat.postMessage({
-        channel: channelId,
-        thread_ts: threadTs,
-        text: ':warning: A query is already running in this thread.',
-      });
-      return;
-    }
-
-    await messageQueue.startMessage(session.threadKey, channelId, threadTs);
-
-    await queryRunner.run(session, text, {
-      onText(textChunk) {
-        messageQueue.appendText(session.threadKey, textChunk);
-      },
-      onToolUse(toolName, toolInput) {
-        const formatted = formatToolUse(toolName, toolInput);
-        messageQueue.postInThread(session.threadKey, formatted).catch(console.error);
-      },
-      onToolResult() {},
-      async onComplete(resultText) {
-        if (resultText) {
-          messageQueue.appendText(session.threadKey, resultText);
-        }
-        await messageQueue.complete(session.threadKey);
-      },
-      async onError(error) {
-        await messageQueue.error(session.threadKey, error.message || 'Unknown error');
-      },
-    });
+    await handlePrompt(msg.channel, msg.thread_ts || msg.ts, msg.text || '', msg.files, client);
   });
 }

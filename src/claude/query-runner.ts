@@ -24,8 +24,7 @@ export class QueryRunner {
     prompt: string,
     callbacks: QueryCallbacks
   ): Promise<void> {
-    this.sessionManager.setRunning(session.threadKey, true);
-
+    // claimRunning() was called by the caller before the first await — don't call setRunning(true) here
     try {
       const options: Record<string, unknown> = {
         abortController: session.abortController,

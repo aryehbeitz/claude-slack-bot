@@ -78,7 +78,7 @@ async function main() {
   const fileHandler = new FileHandler(app.client);
 
   // Register handlers
-  registerEventHandlers(
+  await registerEventHandlers(
     app,
     sessionManager,
     queryRunner,
