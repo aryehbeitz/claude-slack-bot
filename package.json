@@ -1,0 +1,26 @@
+{
+  "name": "claude-slack-bot",
+  "version": "1.0.0",
+  "description": "Slack bot for Claude Code — send coding tasks from your phone, get streaming results, approve tool use via buttons",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": ["slack", "claude", "claude-code", "bot", "ai"],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.0",
+    "@slack/bolt": "^4.6.0",
+    "dotenv": "^16.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
