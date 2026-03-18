@@ -123,9 +123,11 @@ export async function registerEventHandlers(
     if (msg.subtype || msg.bot_id) return;
     if (!msg.text && !msg.files) return;
 
-    // Skip channel/group messages that don't mention the bot
+    // Skip channel/group messages that don't mention the bot, unless it's a thread reply to an existing session
     if (msg.channel_type === 'channel' || msg.channel_type === 'group') {
-      if (!msg.text?.includes(`<@${botUserId}>`)) return;
+      const isThread = !!msg.thread_ts;
+      const hasExistingSession = isThread && sessionManager.get(msg.channel, msg.thread_ts);
+      if (!msg.text?.includes(`<@${botUserId}>`) && !hasExistingSession) return;
     }
 
     if (config.allowedUserIds.length > 0 && !config.allowedUserIds.includes(msg.user)) return;

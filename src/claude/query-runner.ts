@@ -33,9 +33,8 @@ export class QueryRunner {
         permissionMode: 'bypassPermissions',
       };
 
-      if (session.conversationId) {
-        (options as any).resume = true;
-        (options as any).conversationId = session.conversationId;
+      if (session.sessionId) {
+        (options as any).resume = session.sessionId;
       }
 
       let resultText = '';
@@ -48,12 +47,13 @@ export class QueryRunner {
       for await (const message of conversation) {
         const msg = message as any;
 
-        // Extract conversationId for session resume
-        if (msg.type === 'system' && msg.subtype === 'init') {
-          const convId = msg.conversationId || msg.session_id;
-          if (convId) {
-            this.sessionManager.updateConversationId(session.threadKey, convId);
-          }
+        if (process.env.DEBUG) {
+          console.log(`[query] ${msg.type}${msg.subtype ? '.' + msg.subtype : ''}`, JSON.stringify(msg).slice(0, 500));
+        }
+
+        // Extract session_id for session resume
+        if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
+          this.sessionManager.updateSessionId(session.threadKey, msg.session_id);
         }
 
         // Extract final result

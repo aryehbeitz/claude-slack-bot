@@ -2,6 +2,7 @@ import { ClaudeSession, Config } from '../types';
 
 export class SessionManager {
   private sessions = new Map<string, ClaudeSession>();
+  private channelCwd = new Map<string, string>();
   private cleanupTimer: NodeJS.Timeout;
 
   constructor(private config: Config) {
@@ -32,7 +33,7 @@ export class SessionManager {
         threadKey: key,
         channelId,
         threadTs,
-        cwd: this.config.defaultCwd,
+        cwd: this.channelCwd.get(channelId) || this.config.defaultCwd,
         mode: 'ask',
         isRunning: false,
         abortController: new AbortController(),
@@ -72,6 +73,10 @@ export class SessionManager {
     if (session) {
       session.cwd = cwd;
     }
+  }
+
+  setChannelCwd(channelId: string, cwd: string) {
+    this.channelCwd.set(channelId, cwd);
   }
 
   /** Atomically claim the running slot. Returns false if already running. (#3, #4) */

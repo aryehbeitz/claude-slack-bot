@@ -20,6 +20,9 @@ export function handleInlineCommand(
   const cwdMatch = trimmed.match(/^\/?(cwd)\s+(.+)$/i);
   if (cwdMatch) {
     const newCwd = cwdMatch[2].trim();
+    // Always set channel default so new threads pick it up
+    sessionManager.setChannelCwd(channelId, newCwd);
+    // Also set on current thread session
     const session = sessionManager.getOrCreate(channelId, threadTs);
     sessionManager.setCwd(session.threadKey, newCwd);
     return {
@@ -90,11 +93,17 @@ export function registerSlashCommands(
 ) {
   app.command('/cwd', async ({ command, ack, respond }: any) => {
     await ack();
-    const threadTs = command.thread_ts || command.ts;
-    const session = sessionManager.getOrCreate(command.channel_id, threadTs);
     const newCwd = command.text.trim() || config.defaultCwd;
-    sessionManager.setCwd(session.threadKey, newCwd);
-    await respond(`:file_folder: Working directory set to \`${newCwd}\``);
+    if (command.thread_ts) {
+      // In a thread: set CWD for this thread's session
+      const session = sessionManager.getOrCreate(command.channel_id, command.thread_ts);
+      sessionManager.setCwd(session.threadKey, newCwd);
+      await respond(`:file_folder: Thread working directory set to \`${newCwd}\``);
+    } else {
+      // In channel: set default CWD for all new sessions in this channel
+      sessionManager.setChannelCwd(command.channel_id, newCwd);
+      await respond(`:file_folder: Channel default working directory set to \`${newCwd}\``);
+    }
   });
 
   app.command('/auto', async ({ command, ack, respond }: any) => {
