@@ -45,8 +45,12 @@ while true; do
         s) pm2 start ecosystem.config.cjs 2>&1 | tail -3 ;;
         x) pm2 stop claude-slack-bot 2>&1 | tail -3 ;;
         r) pm2 restart claude-slack-bot 2>&1 | tail -3 ;;
-        c) pm2 flush claude-slack-bot 2>&1; echo "Cleared." ;;
-        q) exit 0 ;;
+        c) zellij action move-focus up 2>/dev/null
+           zellij action clear 2>/dev/null
+           zellij action move-focus down 2>/dev/null
+           pm2 flush claude-slack-bot 2>&1
+           echo "Cleared." ;;
+        q) zellij kill-session claude-bot 2>/dev/null; exit 0 ;;
     esac
     sleep 1
 done
@@ -56,12 +60,12 @@ chmod +x "$ACTIONS_SCRIPT"
 LAYOUT="/tmp/claude-bot-layout.kdl"
 cat > "$LAYOUT" << 'KDL'
 layout {
-    pane command="pm2" {
+    pane command="pm2" start_suspended=false {
         args "logs" "claude-slack-bot" "--lines" "100"
         name "Logs"
         size "80%"
     }
-    pane command="bash" {
+    pane command="bash" start_suspended=false {
         args "/tmp/claude-bot-actions.sh"
         name "Actions"
         size "20%"
@@ -69,5 +73,6 @@ layout {
 }
 KDL
 
-# Attach to existing session or create if it doesn't exist
-zellij --layout "$LAYOUT" attach --create claude-bot
+# Join existing session if alive, otherwise create with layout
+# --force-run-commands: when resurrecting an EXITED session, run pane commands immediately (no "Waiting to run")
+zellij --layout "$LAYOUT" attach --create --force-run-commands claude-bot
