@@ -1,8 +1,8 @@
-import { query, type MessageEvent } from '@anthropic-ai/claude-code';
+import { query, type MessageEvent } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeSession, Config } from '../types';
 import { PermissionHandler } from './permission-handler';
 import { SessionManager } from './session-manager';
-import { classifyError, withRetry } from '../utils/errors';
+import { classifyError } from '../utils/errors';
 
 export interface QueryCallbacks {
   onText: (text: string) => void;
@@ -29,8 +29,8 @@ export class QueryRunner {
       const options: Record<string, unknown> = {
         abortController: session.abortController,
         cwd: session.cwd,
-        allowedTools: [],
         maxTurns: 50,
+        permissionMode: 'bypassPermissions',
       };
 
       if (session.conversationId) {
@@ -38,62 +38,30 @@ export class QueryRunner {
         (options as any).conversationId = session.conversationId;
       }
 
-      if (session.mode === 'auto') {
-        (options as any).permissionMode = 'bypassPermissions';
-      } else {
-        (options as any).permissionMode = 'default';
-        (options as any).permissionPromptToolName = 'Claude Slack Bot';
-      }
-
-      const result = await withRetry(
-        () => query({ prompt, options: options as any }),
-        { maxRetries: 2, baseDelayMs: 2000, signal: session.abortController.signal }
-      );
-
-      // Process the result messages
       let resultText = '';
-      if (Array.isArray(result)) {
-        for (const message of result) {
-          this.processMessage(message as MessageEvent, session, callbacks);
-          // Extract final text
-          if ((message as any).type === 'result') {
-            resultText = (message as any).result || '';
+
+      const conversation = query({
+        prompt,
+        options: options as any,
+      });
+
+      for await (const message of conversation) {
+        const msg = message as any;
+
+        // Extract conversationId for session resume
+        if (msg.type === 'system' && msg.subtype === 'init') {
+          const convId = msg.conversationId || msg.session_id;
+          if (convId) {
+            this.sessionManager.updateConversationId(session.threadKey, convId);
           }
         }
-      }
 
-      // If result is the final text directly
-      if (typeof result === 'string') {
-        resultText = result;
-      }
-
-      // Extract conversationId from result messages for session resume
-      if (Array.isArray(result)) {
-        for (const msg of result) {
-          if ((msg as any).type === 'system' && (msg as any).subtype === 'init') {
-            const convId = (msg as any).conversationId || (msg as any).session_id;
-            if (convId) {
-              this.sessionManager.updateConversationId(session.threadKey, convId);
-            }
-          }
+        // Extract final result
+        if (msg.type === 'result') {
+          resultText = msg.result || '';
         }
-      }
 
-      if (!resultText && Array.isArray(result)) {
-        // Try to extract text from assistant messages
-        for (const msg of result) {
-          if ((msg as any).role === 'assistant' && (msg as any).content) {
-            const content = (msg as any).content;
-            if (typeof content === 'string') {
-              resultText = content;
-            } else if (Array.isArray(content)) {
-              resultText = content
-                .filter((b: any) => b.type === 'text')
-                .map((b: any) => b.text)
-                .join('\n');
-            }
-          }
-        }
+        this.processMessage(message, session, callbacks);
       }
 
       callbacks.onComplete(resultText);

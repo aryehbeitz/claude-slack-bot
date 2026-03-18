@@ -35,14 +35,30 @@ function runStartupChecks(config: { defaultCwd: string; anthropicApiKey: string 
     );
   }
 
-  // Check API key is present (not valid — that happens on first query)
-  if (!config.anthropicApiKey) {
-    console.error(
-      '[startup] FATAL: ANTHROPIC_API_KEY is not set. Set it in .env or environment.'
-    );
-    process.exit(1);
+  // Check API key or claude login
+  if (config.anthropicApiKey) {
+    console.log('[startup] ANTHROPIC_API_KEY: set');
+  } else {
+    try {
+      const authStatus = execSync('claude auth status 2>/dev/null', {
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+      if (authStatus.includes('"loggedIn": true')) {
+        console.log('[startup] Auth: logged in via claude login');
+      } else {
+        console.error(
+          '[startup] FATAL: No ANTHROPIC_API_KEY and not logged in. Run `claude login` or set ANTHROPIC_API_KEY in .env.'
+        );
+        process.exit(1);
+      }
+    } catch {
+      console.error(
+        '[startup] FATAL: No ANTHROPIC_API_KEY and could not verify claude login. Run `claude login` or set ANTHROPIC_API_KEY in .env.'
+      );
+      process.exit(1);
+    }
   }
-  console.log('[startup] ANTHROPIC_API_KEY: set');
 
   // Check default working directory exists
   if (!fs.existsSync(config.defaultCwd)) {

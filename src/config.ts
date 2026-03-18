@@ -21,7 +21,7 @@ export function loadConfig(): Config {
     slackAppToken: requireEnv('SLACK_APP_TOKEN'),
     slackSigningSecret: requireEnv('SLACK_SIGNING_SECRET'),
     defaultCwd: process.env.DEFAULT_CWD || process.cwd(),
-    anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
     allowedUserIds: optionalList('ALLOWED_USER_IDS'),
     allowedChannelIds: optionalList('ALLOWED_CHANNEL_IDS'),
     sessionTimeoutMs:
