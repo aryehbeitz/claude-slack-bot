@@ -77,23 +77,32 @@ export async function registerEventHandlers(
 
     // Track full response text for question detection
     let fullResponseText = '';
+    // Track tool usage for summary
+    const toolUsage: { name: string; detail: string }[] = [];
 
     // Run the query
     await queryRunner.run(session, text, {
       onText(textChunk) {
         fullResponseText += textChunk;
-        messageQueue.appendText(session.threadKey, textChunk);
+        if (config.showStreaming) {
+          messageQueue.appendText(session.threadKey, textChunk);
+        }
       },
 
       async onToolUse(toolName, toolInput) {
-        // Flush text buffer first so tool use appears after the text
-        await messageQueue.flush(session.threadKey);
-        const formatted = formatToolUse(toolName, toolInput);
-        await messageQueue.postInThread(session.threadKey, formatted);
+        toolUsage.push({
+          name: toolName,
+          detail: (toolInput as any).command || (toolInput as any).file_path || (toolInput as any).pattern || '',
+        });
+        if (config.showToolCalls) {
+          await messageQueue.flush(session.threadKey);
+          const formatted = formatToolUse(toolName, toolInput);
+          await messageQueue.postInThread(session.threadKey, formatted);
+        }
       },
 
       async onToolResult(_toolName, output) {
-        if (output) {
+        if (config.showToolResults && output) {
           const formatted = formatToolResult(output);
           if (formatted) {
             await messageQueue.postInThread(session.threadKey, formatted);
@@ -108,6 +117,30 @@ export async function registerEventHandlers(
         }
         await messageQueue.complete(session.threadKey);
         fileHandler.cleanupTempFiles(processedFiles);
+
+        // Post compact tool summary
+        if (config.showToolSummary && toolUsage.length > 0) {
+          const counts = new Map<string, number>();
+          for (const t of toolUsage) {
+            counts.set(t.name, (counts.get(t.name) || 0) + 1);
+          }
+          const icons: Record<string, string> = {
+            Bash: ':computer:', Read: ':page_facing_up:', Write: ':pencil2:',
+            Edit: ':pencil:', Glob: ':mag:', Grep: ':mag_right:', Agent: ':robot_face:',
+          };
+          const parts = Array.from(counts.entries()).map(
+            ([name, count]) => `${icons[name] || ':gear:'} ${name} x${count}`
+          );
+          await client.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: parts.join('  |  '),
+            blocks: [{
+              type: 'context',
+              elements: [{ type: 'mrkdwn', text: parts.join('  |  ') }],
+            }],
+          });
+        }
 
         // Detect questions and post interactive buttons
         const responseToCheck = resultText || fullResponseText || '';

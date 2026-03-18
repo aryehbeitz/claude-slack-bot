@@ -30,5 +30,11 @@ export function loadConfig(): Config {
       1000,
     messageUpdateIntervalMs:
       parseInt(process.env.MESSAGE_UPDATE_INTERVAL_MS || '1500', 10) || 1500,
+
+    // Display flags
+    showToolCalls: process.env.SHOW_TOOL_CALLS === '1',
+    showToolResults: process.env.SHOW_TOOL_RESULTS === '1',
+    showStreaming: process.env.SHOW_STREAMING !== '0', // default on
+    showToolSummary: process.env.SHOW_TOOL_SUMMARY !== '0', // default on
   };
 }

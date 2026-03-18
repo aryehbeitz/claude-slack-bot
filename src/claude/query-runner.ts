@@ -51,7 +51,7 @@ export class QueryRunner {
         const msg = message as any;
 
         if (process.env.DEBUG) {
-          console.log(`[query] ${msg.type}${msg.subtype ? '.' + msg.subtype : ''}`, JSON.stringify(msg).slice(0, 500));
+          this.logMessage(msg);
         }
 
         // Extract session_id for session resume
@@ -137,6 +137,51 @@ export class QueryRunner {
       );
     } finally {
       this.sessionManager.setRunning(session.threadKey, false);
+    }
+  }
+
+  /** Pretty-print SDK messages like Claude's live thinking */
+  private logMessage(msg: any) {
+    const dim = '\x1b[2m';
+    const reset = '\x1b[0m';
+    const bold = '\x1b[1m';
+    const cyan = '\x1b[36m';
+    const green = '\x1b[32m';
+    const yellow = '\x1b[33m';
+    const magenta = '\x1b[35m';
+
+    if (msg.type === 'system' && msg.subtype === 'init') {
+      console.log(`${cyan}● Session started${reset} ${dim}${msg.session_id}${reset}`);
+      console.log(`  ${dim}cwd: ${msg.cwd}${reset}`);
+    } else if (msg.type === 'assistant' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'thinking') {
+          console.log(`${dim}💭 ${block.thinking?.slice(0, 200)}${reset}`);
+        } else if (block.type === 'text') {
+          console.log(`${bold}${green}◆ Claude:${reset} ${block.text?.slice(0, 300)}`);
+        } else if (block.type === 'tool_use') {
+          const input = block.input || {};
+          const detail = input.command || input.file_path || input.pattern || input.description || '';
+          console.log(`${yellow}⚡ ${block.name}${reset} ${dim}${detail}${reset}`);
+        }
+      }
+    } else if (msg.type === 'user') {
+      const stdout = msg.tool_use_result?.stdout;
+      if (stdout) {
+        const lines = stdout.split('\n');
+        const preview = lines.slice(0, 3).join('\n');
+        const more = lines.length > 3 ? `${dim} (${lines.length - 3} more lines)${reset}` : '';
+        console.log(`${magenta}  ↳${reset} ${dim}${preview}${reset}${more}`);
+      }
+    } else if (msg.type === 'result') {
+      const dur = msg.duration_ms ? `${(msg.duration_ms / 1000).toFixed(1)}s` : '';
+      const cost = msg.total_cost_usd ? `$${msg.total_cost_usd.toFixed(4)}` : '';
+      const turns = msg.num_turns || '';
+      console.log(`${green}✓ Done${reset} ${dim}${turns} turns · ${dur} · ${cost}${reset}`);
+    } else if (msg.type === 'rate_limit_event') {
+      // skip noise
+    } else {
+      console.log(`${dim}[${msg.type}${msg.subtype ? '.' + msg.subtype : ''}]${reset}`);
     }
   }
 }

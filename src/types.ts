@@ -41,4 +41,10 @@ export interface Config {
   allowedChannelIds: string[];
   sessionTimeoutMs: number;
   messageUpdateIntervalMs: number;
+
+  // Display flags — control what appears in the Slack thread
+  showToolCalls: boolean;      // Show tool use messages (e.g. ":computer: Bash: git status")
+  showToolResults: boolean;    // Show tool output (stdout/file contents)
+  showStreaming: boolean;      // Stream text as Claude types, or just show final result
+  showToolSummary: boolean;    // Show a compact summary line of tools used after completion
 }
