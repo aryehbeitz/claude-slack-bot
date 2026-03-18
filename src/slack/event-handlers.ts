@@ -6,6 +6,7 @@ import { MessageQueue } from './message-queue';
 import { FileHandler } from './file-handler';
 import { handleInlineCommand } from './commands';
 import { formatToolUse } from './formatter';
+import { detectQuestions, buildQuestionBlocks } from './question-detector';
 import { Config } from '../types';
 
 export async function registerEventHandlers(
@@ -74,9 +75,13 @@ export async function registerEventHandlers(
     // Start streaming message
     await messageQueue.startMessage(session.threadKey, channelId, threadTs);
 
+    // Track full response text for question detection
+    let fullResponseText = '';
+
     // Run the query
     await queryRunner.run(session, text, {
       onText(textChunk) {
+        fullResponseText += textChunk;
         messageQueue.appendText(session.threadKey, textChunk);
       },
 
@@ -92,6 +97,21 @@ export async function registerEventHandlers(
       async onComplete(_resultText) {
         await messageQueue.complete(session.threadKey);
         fileHandler.cleanupTempFiles(processedFiles);
+
+        // Detect questions and post interactive buttons
+        const responseToCheck = fullResponseText || _resultText || '';
+        const questions = detectQuestions(responseToCheck);
+        if (questions.length > 0) {
+          const { blocks, answerMap } = buildQuestionBlocks(questions, session.threadKey);
+          // Store answer map on session for action handler
+          (session as any).pendingAnswers = answerMap;
+          await client.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: 'Quick replies:',
+            blocks,
+          });
+        }
       },
 
       async onError(error) {
@@ -134,6 +154,45 @@ export async function registerEventHandlers(
 
     if (dedup(msg.ts)) return;
     await handlePrompt(msg.channel, msg.thread_ts || msg.ts, msg.text || '', msg.files, client);
+  });
+
+  // Handle quick-reply button clicks for question answers
+  app.action(/^qa_/, async ({ action, ack, body, client: actionClient }) => {
+    await ack();
+    const actionId = (action as any).action_id;
+    const answerValue = (action as any).value;
+
+    // Find the session that has this pending answer
+    const channelId = (body as any).channel?.id;
+    const threadTs = (body as any).message?.thread_ts || (body as any).message?.ts;
+    if (!channelId || !threadTs) return;
+
+    const session = sessionManager.get(channelId, threadTs);
+    if (!session) return;
+
+    const answerMap = (session as any).pendingAnswers as Map<string, string> | undefined;
+    const answerText = answerMap?.get(actionId) || answerValue || 'Yes';
+
+    // Delete the buttons message
+    try {
+      await actionClient.chat.delete({
+        channel: channelId,
+        ts: (body as any).message.ts,
+      });
+    } catch {}
+
+    // Post the user's answer as a visible message
+    await actionClient.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: `:speech_balloon: ${answerText}`,
+    });
+
+    // Clear pending answers
+    delete (session as any).pendingAnswers;
+
+    // Feed the answer back to Claude
+    await handlePrompt(channelId, threadTs, answerText, undefined, actionClient);
   });
 
   // Handle app_mention events (for channels)
