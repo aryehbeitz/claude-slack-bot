@@ -2,39 +2,40 @@
 
 export interface DetectedQuestion {
   num: number;
-  /** Full question text for display */
   fullText: string;
 }
 
 /**
- * Parse Claude's response for numbered questions.
+ * Parse Claude's response for numbered or bullet-point questions.
  */
 export function detectQuestions(text: string): DetectedQuestion[] {
   const questions: DetectedQuestion[] = [];
+  const seen = new Set<string>();
 
   const lines = text.split('\n');
-  let bulletNum = 0;
+  let autoNum = 0;
 
   for (const line of lines) {
+    let questionText: string | null = null;
+
     // Match numbered: "1. Should I refactor both?"
-    // Match numbered: "1. **Scope** — Do you want to..."
     const numMatch = line.match(/^\s*(\d+)\.\s+(.+?\?)\s*$/);
     if (numMatch) {
-      questions.push({
-        num: parseInt(numMatch[1]),
-        fullText: numMatch[2].trim(),
-      });
-      continue;
+      questionText = numMatch[2].trim();
     }
 
-    // Match bullet points: "- Consolidate the scattered maps into...?"
-    const bulletMatch = line.match(/^\s*[-*]\s+(.+?\?)\s*$/);
-    if (bulletMatch) {
-      bulletNum++;
-      questions.push({
-        num: bulletNum,
-        fullText: bulletMatch[1].trim(),
-      });
+    // Match bullet: "- Consolidate the scattered maps...?"
+    if (!questionText) {
+      const bulletMatch = line.match(/^\s*[-*]\s+(.+?\?)\s*$/);
+      if (bulletMatch) {
+        questionText = bulletMatch[1].trim();
+      }
+    }
+
+    if (questionText && !seen.has(questionText)) {
+      seen.add(questionText);
+      autoNum++;
+      questions.push({ num: autoNum, fullText: questionText });
     }
   }
 
@@ -61,25 +62,29 @@ export function buildQuestionBlocks(
     text: { type: 'mrkdwn', text: questionList.slice(0, 3000) },
   });
 
-  // "Yes to all" + numbered buttons
+  // "Yes to all" button
   const allYesId = `qa_${threadKey}_all`;
   answerMap.set(allYesId, questions.map(q => `${q.num}. Yes`).join('\n'));
 
-  const buttons: any[] = [
-    {
-      type: 'button',
-      text: { type: 'plain_text', text: 'Yes to all' },
-      style: 'primary',
-      action_id: allYesId,
-      value: 'yes_all',
-    },
-  ];
+  const allButtons: any[][] = [[]];
+  allButtons[0].push({
+    type: 'button',
+    text: { type: 'plain_text', text: 'Yes to all' },
+    style: 'primary',
+    action_id: allYesId,
+    value: 'yes_all',
+  });
 
-  // Numbered buttons: "1", "2", "3", etc.
-  for (const q of questions.slice(0, 4)) {
-    const actionId = `qa_${threadKey}_${q.num}`;
+  // Numbered buttons, max 5 per row (Slack limit)
+  for (const q of questions) {
+    const actionId = `qa_${threadKey}_q${q.num}`;
     answerMap.set(actionId, `${q.num}. Yes`);
-    buttons.push({
+
+    const currentRow = allButtons[allButtons.length - 1];
+    if (currentRow.length >= 5) {
+      allButtons.push([]);
+    }
+    allButtons[allButtons.length - 1].push({
       type: 'button',
       text: { type: 'plain_text', text: `${q.num}. Yes` },
       action_id: actionId,
@@ -87,23 +92,9 @@ export function buildQuestionBlocks(
     });
   }
 
-  blocks.push({ type: 'actions', elements: buttons });
-
-  // Second row if needed
-  if (questions.length > 4) {
-    const moreButtons: any[] = [];
-    for (const q of questions.slice(4, 9)) {
-      const actionId = `qa_${threadKey}_${q.num}`;
-      answerMap.set(actionId, `${q.num}. Yes`);
-      moreButtons.push({
-        type: 'button',
-        text: { type: 'plain_text', text: `${q.num}. Yes` },
-        action_id: actionId,
-        value: `${q.num}_yes`,
-      });
-    }
-    if (moreButtons.length > 0) {
-      blocks.push({ type: 'actions', elements: moreButtons });
+  for (const row of allButtons) {
+    if (row.length > 0) {
+      blocks.push({ type: 'actions', elements: row });
     }
   }
 
