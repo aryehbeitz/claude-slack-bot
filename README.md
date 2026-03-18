@@ -80,6 +80,7 @@ npm run pm2:logs     # Tail logs (anyone can run this)
 | `npm run pm2:stop` | Stop the bot |
 | `npm run pm2:restart` | Restart manually |
 | `npm run pm2:status` | Check if running |
+| `npm run dashboard` | Zellij dashboard (logs + start/stop/restart menu). Creates session if needed. |
 
 pm2 runs in the background so you can close the terminal. Logs are at `~/.pm2/logs/claude-slack-bot-*.log`.
 

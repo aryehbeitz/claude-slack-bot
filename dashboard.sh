@@ -69,7 +69,5 @@ layout {
 }
 KDL
 
-# Kill existing session if any, then start fresh
-zellij kill-session claude-bot 2>/dev/null
-sleep 0.3
-zellij --layout "$LAYOUT" --session claude-bot
+# Attach to existing session or create if it doesn't exist
+zellij --layout "$LAYOUT" attach --create claude-bot
