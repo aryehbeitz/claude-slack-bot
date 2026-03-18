@@ -5,7 +5,7 @@ import { PermissionHandler } from '../claude/permission-handler';
 import { MessageQueue } from './message-queue';
 import { FileHandler } from './file-handler';
 import { handleInlineCommand } from './commands';
-import { formatToolUse } from './formatter';
+import { formatToolUse, formatToolResult } from './formatter';
 import { detectQuestions, buildQuestionBlocks } from './question-detector';
 import { Config } from '../types';
 
@@ -92,7 +92,12 @@ export async function registerEventHandlers(
         await messageQueue.postInThread(session.threadKey, formatted);
       },
 
-      onToolResult(_toolName, _output) {},
+      async onToolResult(_toolName, output) {
+        if (output) {
+          const formatted = formatToolResult(output);
+          await messageQueue.postInThread(session.threadKey, formatted);
+        }
+      },
 
       async onComplete(_resultText) {
         await messageQueue.complete(session.threadKey);
