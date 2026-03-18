@@ -1,4 +1,12 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { ClaudeSession, Config } from '../types';
+
+const STATE_FILE = path.join(process.cwd(), '.bot-state.json');
+
+interface PersistedState {
+  channelCwd: Record<string, string>;
+}
 
 export class SessionManager {
   private sessions = new Map<string, ClaudeSession>();
@@ -6,10 +14,38 @@ export class SessionManager {
   private cleanupTimer: NodeJS.Timeout;
 
   constructor(private config: Config) {
+    this.loadState();
     this.cleanupTimer = setInterval(
       () => this.cleanupIdleSessions(),
       60 * 1000
     );
+  }
+
+  private loadState() {
+    try {
+      if (fs.existsSync(STATE_FILE)) {
+        const data: PersistedState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+        if (data.channelCwd) {
+          for (const [k, v] of Object.entries(data.channelCwd)) {
+            this.channelCwd.set(k, v);
+          }
+          console.log(`[session] Loaded ${this.channelCwd.size} channel CWD(s) from state`);
+        }
+      }
+    } catch (err) {
+      console.warn('[session] Failed to load state:', err);
+    }
+  }
+
+  private saveState() {
+    try {
+      const data: PersistedState = {
+        channelCwd: Object.fromEntries(this.channelCwd),
+      };
+      fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
+    } catch (err) {
+      console.warn('[session] Failed to save state:', err);
+    }
   }
 
   makeKey(channelId: string, threadTs: string): string {
@@ -77,6 +113,7 @@ export class SessionManager {
 
   setChannelCwd(channelId: string, cwd: string) {
     this.channelCwd.set(channelId, cwd);
+    this.saveState();
   }
 
   /** Atomically claim the running slot. Returns false if already running. (#3, #4) */
