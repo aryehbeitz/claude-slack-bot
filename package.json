@@ -9,9 +9,10 @@
     "dev": "tsx watch --clear-screen=false src/index.ts",
     "pm2": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop claude-slack-bot",
-    "pm2:restart": "pm2 restart claude-slack-bot",
+    "pm2:restart": "pm2 restart claude-slack-bot 2>/dev/null || pm2 start ecosystem.config.cjs",
     "pm2:logs": "pm2 logs claude-slack-bot",
-    "pm2:status": "pm2 status"
+    "pm2:status": "pm2 status",
+    "dashboard": "./dashboard.sh"
   },
   "keywords": [
     "slack",
