@@ -102,8 +102,8 @@ export function formatToolResult(output: string, maxLen = 2000): string {
 }
 
 const toolIcons: Record<string, string> = {
-  Bash: ':terminal:',
-  bash: ':terminal:',
+  Bash: ':computer:',
+  bash: ':computer:',
   Read: ':page_facing_up:',
   read: ':page_facing_up:',
   Write: ':pencil2:',
@@ -116,4 +116,6 @@ const toolIcons: Record<string, string> = {
   grep: ':mag_right:',
   Agent: ':robot_face:',
   agent: ':robot_face:',
+  WebFetch: ':globe_with_meridians:',
+  WebSearch: ':mag:',
 };

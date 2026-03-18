@@ -87,10 +87,7 @@ export async function registerEventHandlers(
 
       onToolResult(_toolName, _output) {},
 
-      async onComplete(resultText) {
-        if (resultText) {
-          messageQueue.appendText(session.threadKey, resultText);
-        }
+      async onComplete(_resultText) {
         await messageQueue.complete(session.threadKey);
         fileHandler.cleanupTempFiles(processedFiles);
       },
