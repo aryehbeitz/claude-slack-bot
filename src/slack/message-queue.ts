@@ -80,6 +80,15 @@ export class MessageQueue {
     }
   }
 
+  /** Replace buffer content entirely (used for final result text) */
+  setContent(threadKey: string, text: string) {
+    const buffer = this.buffers.get(threadKey);
+    if (!buffer) return;
+    buffer.content = text;
+    buffer.charCount = text.length;
+    buffer.dirty = true;
+  }
+
   /** Append text to the buffer */
   appendText(threadKey: string, text: string) {
     const buffer = this.buffers.get(threadKey);

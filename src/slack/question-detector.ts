@@ -1,68 +1,49 @@
 /** Detect questions in Claude's response and extract them for interactive buttons */
 
 export interface DetectedQuestion {
-  /** The full question text */
-  text: string;
+  /** The question number */
+  num: number;
+  /** Short label for the question */
+  label: string;
   /** Suggested quick-reply options */
   options: string[];
 }
 
 /**
- * Parse Claude's response for numbered questions or yes/no questions.
+ * Parse Claude's response for numbered questions.
  * Returns detected questions that can be turned into Slack buttons.
  */
 export function detectQuestions(text: string): DetectedQuestion[] {
   const questions: DetectedQuestion[] = [];
 
-  // Detect numbered questions like "1. Should I refactor both?" or "1. **Scope** — ..."
-  const numberedPattern = /^\s*(\d+)\.\s+\*{0,2}[^*]*?\*{0,2}\s*[-—:]?\s*(.+?\?)/gm;
-  let match;
-  while ((match = numberedPattern.exec(text)) !== null) {
-    const questionText = match[0].trim();
-    // Try to extract inline options like "(a) foo (b) bar" or "option1 or option2"
-    const options = extractOptions(questionText);
-    questions.push({
-      text: questionText,
-      options: options.length > 0 ? options : ['Yes', 'No'],
-    });
-  }
+  // Match numbered questions like:
+  // "1. Should I refactor both?"
+  // "1. **Scope** — Do you want to..."
+  // "2. **Deduplication** — Would you like..."
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const match = line.match(/^\s*(\d+)\.\s+(?:\*{1,2}([^*]+)\*{1,2}\s*[-—:]\s*)?(.+?\?)\s*$/);
+    if (match) {
+      const num = parseInt(match[1]);
+      const label = match[2]?.trim() || '';
+      const questionText = match[3].trim();
 
-  // If no numbered questions, check for standalone yes/no questions
-  if (questions.length === 0) {
-    const lines = text.split('\n');
-    const lastLines = lines.slice(-5).join('\n');
-    if (/\?\s*$/.test(lastLines.trim())) {
-      // Check if it's clearly a yes/no question
-      const yesNoPattern = /(?:should|would|do you|shall|can|want|is it|are you|could)\s+.+\?/i;
-      if (yesNoPattern.test(lastLines)) {
-        questions.push({
-          text: lastLines.trim(),
-          options: ['Yes', 'No'],
-        });
-      }
+      // Extract short label from the question
+      const shortLabel = label || questionText.slice(0, 50);
+
+      questions.push({
+        num,
+        label: shortLabel,
+        options: ['Yes', 'No'],
+      });
     }
   }
 
   return questions;
 }
 
-function extractOptions(text: string): string[] {
-  // Match "X or Y" patterns
-  const orMatch = text.match(/\b([\w\s]+)\s+or\s+([\w\s]+)\?/i);
-  if (orMatch) {
-    const opt1 = orMatch[1].trim();
-    const opt2 = orMatch[2].trim();
-    // Only use if they're short options
-    if (opt1.length < 30 && opt2.length < 30) {
-      return [opt1, opt2];
-    }
-  }
-  return [];
-}
-
 /**
  * Build Slack blocks for interactive question buttons.
- * Returns blocks array and a map of action_id -> answer text.
  */
 export function buildQuestionBlocks(
   questions: DetectedQuestion[],
@@ -71,62 +52,51 @@ export function buildQuestionBlocks(
   const blocks: any[] = [];
   const answerMap = new Map<string, string>();
 
-  // Add a header
-  blocks.push({
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: ':speech_balloon: *Quick replies:*',
+  // "Yes to all" button
+  const allYesId = `qa_${threadKey}_all`;
+  const allYesAnswer = questions.map(q => `${q.num}. Yes`).join('\n');
+  answerMap.set(allYesId, allYesAnswer);
+
+  const topButtons: any[] = [
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: 'Yes to all' },
+      style: 'primary',
+      action_id: allYesId,
+      value: 'yes_all',
     },
-  });
+  ];
 
-  if (questions.length === 1 && questions[0].options.length <= 5) {
-    // Single question with a few options — show as buttons
-    const elements = questions[0].options.map((opt, i) => {
-      const actionId = `qa_${threadKey}_${i}`;
-      answerMap.set(actionId, opt);
-      return {
-        type: 'button',
-        text: { type: 'plain_text', text: opt.slice(0, 75) },
-        action_id: actionId,
-        value: opt,
-      };
+  // Per-question buttons with the question label
+  for (const q of questions.slice(0, 4)) { // Max 4 + "Yes to all" = 5 buttons
+    const actionId = `qa_${threadKey}_${q.num}`;
+    answerMap.set(actionId, `${q.num}. Yes — ${q.label}`);
+    topButtons.push({
+      type: 'button',
+      text: { type: 'plain_text', text: `${q.num}. ${q.label}`.slice(0, 75) },
+      action_id: actionId,
+      value: `${q.num}_yes`,
     });
-    blocks.push({ type: 'actions', elements });
-  } else {
-    // Multiple questions — show numbered buttons for "all yes" + per-question
-    const allYesId = `qa_${threadKey}_all_yes`;
-    answerMap.set(allYesId, questions.map((_, i) => `${i + 1}. Yes`).join('\n'));
+  }
 
-    const elements: any[] = [
-      {
+  blocks.push({ type: 'actions', elements: topButtons });
+
+  // If more than 4 questions, add a second row
+  if (questions.length > 4) {
+    const moreButtons: any[] = [];
+    for (const q of questions.slice(4, 9)) {
+      const actionId = `qa_${threadKey}_${q.num}`;
+      answerMap.set(actionId, `${q.num}. Yes — ${q.label}`);
+      moreButtons.push({
         type: 'button',
-        text: { type: 'plain_text', text: 'Yes to all' },
-        style: 'primary',
-        action_id: allYesId,
-        value: 'yes_all',
-      },
-    ];
-
-    // Add individual numbered buttons for common answers
-    for (let i = 0; i < Math.min(questions.length, 5); i++) {
-      const q = questions[i];
-      for (const opt of q.options.slice(0, 2)) {
-        const actionId = `qa_${threadKey}_${i}_${opt.toLowerCase().replace(/\s+/g, '_')}`;
-        answerMap.set(actionId, `${i + 1}. ${opt}`);
-        // Only add "Yes" buttons for brevity
-        if (opt === 'Yes') {
-          elements.push({
-            type: 'button',
-            text: { type: 'plain_text', text: `${i + 1}. Yes` },
-            action_id: actionId,
-            value: `${i + 1}_yes`,
-          });
-        }
-      }
+        text: { type: 'plain_text', text: `${q.num}. ${q.label}`.slice(0, 75) },
+        action_id: actionId,
+        value: `${q.num}_yes`,
+      });
     }
-
-    blocks.push({ type: 'actions', elements: elements.slice(0, 5) }); // Slack max 5 buttons per block
+    if (moreButtons.length > 0) {
+      blocks.push({ type: 'actions', elements: moreButtons });
+    }
   }
 
   return { blocks, answerMap };

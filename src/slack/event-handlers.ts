@@ -99,12 +99,16 @@ export async function registerEventHandlers(
         }
       },
 
-      async onComplete(_resultText) {
+      async onComplete(resultText) {
+        // If we have a clean result text from the SDK, use it as the final message
+        if (resultText && resultText.length > 0) {
+          messageQueue.setContent(session.threadKey, resultText);
+        }
         await messageQueue.complete(session.threadKey);
         fileHandler.cleanupTempFiles(processedFiles);
 
         // Detect questions and post interactive buttons
-        const responseToCheck = fullResponseText || _resultText || '';
+        const responseToCheck = resultText || fullResponseText || '';
         const questions = detectQuestions(responseToCheck);
         if (questions.length > 0) {
           const { blocks, answerMap } = buildQuestionBlocks(questions, session.threadKey);
