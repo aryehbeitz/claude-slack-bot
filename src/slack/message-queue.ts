@@ -247,74 +247,69 @@ export class MessageQueue {
     // Build blocks for rich formatting
     const blocks = this.textToBlocks(mrkdwn);
 
-    // Slack allows max 50 blocks per message
-    if (blocks.length <= 50 && mrkdwn.length <= MAX_MSG_LEN) {
-      try {
-        await this.slackClient.chat.update({
-          channel: buffer.channelId,
-          ts: buffer.messageTs,
-          text: mrkdwn, // fallback
-          blocks,
-        });
-      } catch (err: any) {
-        if (err?.data?.error === 'ratelimited' || err?.code === 429) {
-          const retryAfter = (err?.data?.response_metadata?.retry_after || 3) * 1000;
-          console.warn(`[message-queue] Slack rate limited, retrying in ${retryAfter}ms`);
-          buffer.dirty = true;
-          if (!this.timers.has(threadKey)) {
-            const timer = setTimeout(
-              () => this.flushBuffer(threadKey),
-              retryAfter
-            );
-            this.timers.set(threadKey, timer);
-          }
-        } else {
-          // Fall back to plain text if blocks fail
-          try {
-            await this.slackClient.chat.update({
-              channel: buffer.channelId,
-              ts: buffer.messageTs,
-              text: mrkdwn,
-            });
-          } catch {
-            console.error('[message-queue] Failed to update message:', err);
-          }
-        }
-      }
-    } else {
-      // Too large for one message — update current, post overflow as new messages
-      const firstBlocks = blocks.slice(0, 50);
-      try {
-        await this.slackClient.chat.update({
-          channel: buffer.channelId,
-          ts: buffer.messageTs,
-          text: mrkdwn.slice(0, MAX_MSG_LEN),
-          blocks: firstBlocks,
-        });
-      } catch (err) {
-        console.error('[message-queue] Failed to update message:', err);
-      }
+    // Split blocks into groups of max 50 (Slack limit per message)
+    const blockGroups: any[][] = [];
+    for (let i = 0; i < blocks.length; i += 50) {
+      blockGroups.push(blocks.slice(i, i + 50));
+    }
+    if (blockGroups.length === 0) {
+      blockGroups.push([{ type: 'section', text: { type: 'mrkdwn', text: '_Processing..._' } }]);
+    }
 
-      // Post remaining blocks as new messages
-      for (let i = 50; i < blocks.length; i += 50) {
-        const chunk = blocks.slice(i, i + 50);
-        const chunkText = chunk.map((b: any) => b.text?.text || '').join('\n');
-        try {
-          const result = await this.slackClient.chat.postMessage({
-            channel: buffer.channelId,
-            thread_ts: buffer.threadTs,
-            text: chunkText,
-            blocks: chunk,
-          });
-          buffer.messageTs = result.ts;
-        } catch (err) {
-          console.error('[message-queue] Failed to post overflow:', err);
+    // Update the existing message with the first group
+    try {
+      await this.slackClient.chat.update({
+        channel: buffer.channelId,
+        ts: buffer.messageTs,
+        text: mrkdwn.slice(0, 4000), // short fallback to avoid msg_too_long
+        blocks: blockGroups[0],
+      });
+    } catch (err: any) {
+      if (err?.data?.error === 'ratelimited' || err?.code === 429) {
+        const retryAfter = (err?.data?.response_metadata?.retry_after || 3) * 1000;
+        console.warn(`[message-queue] Slack rate limited, retrying in ${retryAfter}ms`);
+        buffer.dirty = true;
+        if (!this.timers.has(threadKey)) {
+          this.timers.set(threadKey, setTimeout(() => this.flushBuffer(threadKey), retryAfter));
         }
+        return;
       }
-      // Track only latest content
-      const lastChunk = blocks.slice(-50);
-      buffer.content = lastChunk.map((b: any) => b.text?.text || '').join('\n');
-      buffer.charCount = buffer.content.length;
+      if (err?.data?.error === 'msg_too_long') {
+        // Blocks still too large — try with fewer blocks
+        const half = Math.ceil(blockGroups[0].length / 2);
+        try {
+          await this.slackClient.chat.update({
+            channel: buffer.channelId,
+            ts: buffer.messageTs,
+            text: mrkdwn.slice(0, 4000),
+            blocks: blockGroups[0].slice(0, half),
+          });
+          // Post the rest as overflow
+          blockGroups.unshift(blockGroups[0].slice(half));
+          blockGroups.splice(1, 1); // remove original first group
+        } catch {
+          console.error('[message-queue] Failed to update even with reduced blocks');
+        }
+      } else {
+        console.error('[message-queue] Failed to update message:', err?.data?.error || err);
+      }
+    }
+
+    // Post remaining groups as new messages
+    for (let i = 1; i < blockGroups.length; i++) {
+      const group = blockGroups[i];
+      const groupText = group.map((b: any) => b.text?.text || '').join('\n');
+      try {
+        const result = await this.slackClient.chat.postMessage({
+          channel: buffer.channelId,
+          thread_ts: buffer.threadTs,
+          text: groupText.slice(0, 4000),
+          blocks: group,
+        });
+        buffer.messageTs = result.ts;
+      } catch (err) {
+        console.error('[message-queue] Failed to post overflow:', err);
+      }
     }
   }
 }
