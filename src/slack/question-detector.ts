@@ -3,10 +3,10 @@
 export interface DetectedQuestion {
   /** The question number */
   num: number;
-  /** Short label for the question */
+  /** Short label for the button */
   label: string;
-  /** Suggested quick-reply options */
-  options: string[];
+  /** Full question text */
+  fullText: string;
 }
 
 /**
@@ -18,8 +18,8 @@ export function detectQuestions(text: string): DetectedQuestion[] {
 
   // Match numbered questions like:
   // "1. Should I refactor both?"
-  // "1. **Scope** — Do you want to..."
-  // "2. **Deduplication** — Would you like..."
+  // "1. **Scope** — Do you want to refactor both implementations?"
+  // "2. **Deduplication** — Would you like me to extract shared logic?"
   const lines = text.split('\n');
   for (const line of lines) {
     const match = line.match(/^\s*(\d+)\.\s+(?:\*{1,2}([^*]+)\*{1,2}\s*[-—:]\s*)?(.+?\?)\s*$/);
@@ -27,14 +27,12 @@ export function detectQuestions(text: string): DetectedQuestion[] {
       const num = parseInt(match[1]);
       const label = match[2]?.trim() || '';
       const questionText = match[3].trim();
-
-      // Extract short label from the question
       const shortLabel = label || questionText.slice(0, 50);
 
       questions.push({
         num,
         label: shortLabel,
-        options: ['Yes', 'No'],
+        fullText: label ? `*${label}* — ${questionText}` : questionText,
       });
     }
   }
@@ -44,6 +42,7 @@ export function detectQuestions(text: string): DetectedQuestion[] {
 
 /**
  * Build Slack blocks for interactive question buttons.
+ * Shows the full question text above the buttons.
  */
 export function buildQuestionBlocks(
   questions: DetectedQuestion[],
@@ -51,6 +50,19 @@ export function buildQuestionBlocks(
 ): { blocks: any[]; answerMap: Map<string, string> } {
   const blocks: any[] = [];
   const answerMap = new Map<string, string>();
+
+  // Show full question text above buttons
+  const questionList = questions
+    .map(q => `${q.num}. ${q.fullText}`)
+    .join('\n');
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: questionList.slice(0, 3000),
+    },
+  });
 
   // "Yes to all" button
   const allYesId = `qa_${threadKey}_all`;
@@ -67,8 +79,8 @@ export function buildQuestionBlocks(
     },
   ];
 
-  // Per-question buttons with the question label
-  for (const q of questions.slice(0, 4)) { // Max 4 + "Yes to all" = 5 buttons
+  // Per-question buttons
+  for (const q of questions.slice(0, 4)) {
     const actionId = `qa_${threadKey}_${q.num}`;
     answerMap.set(actionId, `${q.num}. Yes — ${q.label}`);
     topButtons.push({
@@ -81,7 +93,7 @@ export function buildQuestionBlocks(
 
   blocks.push({ type: 'actions', elements: topButtons });
 
-  // If more than 4 questions, add a second row
+  // Second row if more than 4 questions
   if (questions.length > 4) {
     const moreButtons: any[] = [];
     for (const q of questions.slice(4, 9)) {
@@ -99,7 +111,6 @@ export function buildQuestionBlocks(
     }
   }
 
-  // Add hint to type custom answer
   blocks.push({
     type: 'context',
     elements: [
