@@ -95,9 +95,12 @@ export function formatToolUse(
 }
 
 /** Format tool result output */
-export function formatToolResult(output: string, maxLen = 2000): string {
-  if (!output) return '_No output_';
-  const trimmed = output.length > maxLen ? output.slice(0, maxLen) + '\n...' : output;
+export function formatToolResult(output: string, maxLen = 500): string {
+  if (!output) return '';
+  // Skip very short outputs (just "ok", empty lines, etc.)
+  const clean = output.trim();
+  if (clean.length < 3) return '';
+  const trimmed = clean.length > maxLen ? clean.slice(0, maxLen) + '\n...' : clean;
   return `\`\`\`\n${trimmed}\n\`\`\``;
 }
 

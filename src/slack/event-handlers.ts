@@ -95,7 +95,9 @@ export async function registerEventHandlers(
       async onToolResult(_toolName, output) {
         if (output) {
           const formatted = formatToolResult(output);
-          await messageQueue.postInThread(session.threadKey, formatted);
+          if (formatted) {
+            await messageQueue.postInThread(session.threadKey, formatted);
+          }
         }
       },
 

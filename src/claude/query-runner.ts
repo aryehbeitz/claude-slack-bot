@@ -96,16 +96,30 @@ export class QueryRunner {
           }
         }
 
-        // Process tool results
-        if (msg.type === 'user' && msg.message?.content) {
-          const content = Array.isArray(msg.message.content) ? msg.message.content : [];
-          for (const block of content) {
-            if (block.type === 'tool_result') {
-              const output =
-                typeof block.content === 'string'
-                  ? block.content
-                  : JSON.stringify(block.content);
-              await callbacks.onToolResult(block.tool_use_id || 'unknown', output);
+        // Process tool results — prefer top-level tool_use_result.stdout
+        if (msg.type === 'user') {
+          const stdout = msg.tool_use_result?.stdout;
+          if (typeof stdout === 'string' && stdout.length > 0) {
+            await callbacks.onToolResult('tool', stdout);
+          } else if (msg.message?.content) {
+            const content = Array.isArray(msg.message.content) ? msg.message.content : [];
+            for (const block of content) {
+              if (block.type === 'tool_result') {
+                let output: string;
+                if (typeof block.content === 'string') {
+                  output = block.content;
+                } else if (Array.isArray(block.content)) {
+                  output = block.content
+                    .filter((b: any) => b.type === 'text')
+                    .map((b: any) => b.text || '')
+                    .join('\n');
+                } else {
+                  output = JSON.stringify(block.content);
+                }
+                if (output) {
+                  await callbacks.onToolResult('tool', output);
+                }
+              }
             }
           }
         }

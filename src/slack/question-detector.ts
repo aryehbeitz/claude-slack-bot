@@ -99,5 +99,13 @@ export function buildQuestionBlocks(
     }
   }
 
+  // Add hint to type custom answer
+  blocks.push({
+    type: 'context',
+    elements: [
+      { type: 'mrkdwn', text: '_Or type your own answer in the thread_' },
+    ],
+  });
+
   return { blocks, answerMap };
 }

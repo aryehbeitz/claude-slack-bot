@@ -84,8 +84,9 @@ export class MessageQueue {
   setContent(threadKey: string, text: string) {
     const buffer = this.buffers.get(threadKey);
     if (!buffer) return;
-    buffer.content = text;
-    buffer.charCount = text.length;
+    // Ensure real newlines (SDK sometimes returns literal \n)
+    buffer.content = text.replace(/\\n/g, '\n');
+    buffer.charCount = buffer.content.length;
     buffer.dirty = true;
   }
 
