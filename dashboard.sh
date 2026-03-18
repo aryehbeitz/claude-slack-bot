@@ -3,7 +3,6 @@
 # Top pane: live logs | Bottom pane: action menu
 # Usage: ./dashboard.sh
 
-set -e
 cd "$(dirname "$0")"
 
 if ! command -v zellij &>/dev/null; then
