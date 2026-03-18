@@ -5,11 +5,11 @@ import { SessionManager } from './session-manager';
 import { classifyError } from '../utils/errors';
 
 export interface QueryCallbacks {
-  onText: (text: string) => void;
-  onToolUse: (toolName: string, toolInput: Record<string, unknown>) => void;
-  onToolResult: (toolName: string, output: string) => void;
-  onComplete: (resultText: string) => void;
-  onError: (error: Error) => void;
+  onText: (text: string) => void | Promise<void>;
+  onToolUse: (toolName: string, toolInput: Record<string, unknown>) => void | Promise<void>;
+  onToolResult: (toolName: string, output: string) => void | Promise<void>;
+  onComplete: (resultText: string) => void | Promise<void>;
+  onError: (error: Error) => void | Promise<void>;
 }
 
 export class QueryRunner {
@@ -84,7 +84,7 @@ export class QueryRunner {
               fullText += block.text;
             } else if (block.type === 'tool_use' && !seenToolUseIds.has(block.id)) {
               seenToolUseIds.add(block.id);
-              callbacks.onToolUse(block.name, block.input || {});
+              await callbacks.onToolUse(block.name, block.input || {});
             }
           }
 
@@ -105,20 +105,20 @@ export class QueryRunner {
                 typeof block.content === 'string'
                   ? block.content
                   : JSON.stringify(block.content);
-              callbacks.onToolResult(block.tool_use_id || 'unknown', output);
+              await callbacks.onToolResult(block.tool_use_id || 'unknown', output);
             }
           }
         }
       }
 
-      callbacks.onComplete(resultText);
+      await callbacks.onComplete(resultText);
     } catch (err: any) {
       const classified = classifyError(err);
       console[classified.logLevel](
         `[query-runner] ${classified.emoji} ${classified.userMessage}`,
         err?.message || err
       );
-      callbacks.onError(
+      await callbacks.onError(
         new Error(`${classified.emoji} ${classified.userMessage}`)
       );
     } finally {

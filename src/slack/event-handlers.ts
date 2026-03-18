@@ -80,9 +80,11 @@ export async function registerEventHandlers(
         messageQueue.appendText(session.threadKey, textChunk);
       },
 
-      onToolUse(toolName, toolInput) {
+      async onToolUse(toolName, toolInput) {
+        // Flush text buffer first so tool use appears after the text
+        await messageQueue.flush(session.threadKey);
         const formatted = formatToolUse(toolName, toolInput);
-        messageQueue.postInThread(session.threadKey, formatted).catch(console.error);
+        await messageQueue.postInThread(session.threadKey, formatted);
       },
 
       onToolResult(_toolName, _output) {},
