@@ -102,6 +102,20 @@ export async function registerEventHandlers(
     });
   }
 
+  // Track handled messages to avoid duplicate processing from message + app_mention events
+  const handledMessages = new Set<string>();
+
+  function dedup(ts: string): boolean {
+    if (handledMessages.has(ts)) return true;
+    handledMessages.add(ts);
+    // Prevent unbounded growth
+    if (handledMessages.size > 1000) {
+      const arr = Array.from(handledMessages);
+      for (let i = 0; i < 500; i++) handledMessages.delete(arr[i]);
+    }
+    return false;
+  }
+
   // Handle direct messages and channel messages
   app.event('message', async ({ event, client }) => {
     const msg = event as any;
@@ -117,6 +131,7 @@ export async function registerEventHandlers(
     if (config.allowedUserIds.length > 0 && !config.allowedUserIds.includes(msg.user)) return;
     if (config.allowedChannelIds.length > 0 && !config.allowedChannelIds.includes(msg.channel)) return;
 
+    if (dedup(msg.ts)) return;
     await handlePrompt(msg.channel, msg.thread_ts || msg.ts, msg.text || '', msg.files, client);
   });
 
@@ -128,6 +143,7 @@ export async function registerEventHandlers(
     if (config.allowedUserIds.length > 0 && !config.allowedUserIds.includes(msg.user)) return;
     if (config.allowedChannelIds.length > 0 && !config.allowedChannelIds.includes(msg.channel)) return;
 
+    if (dedup(msg.ts)) return;
     await handlePrompt(msg.channel, msg.thread_ts || msg.ts, msg.text || '', msg.files, client);
   });
 }
