@@ -62,12 +62,13 @@ export async function registerEventHandlers(
     // Get or create session
     const session = sessionManager.getOrCreate(channelId, threadTs);
 
-    // Atomically claim the running slot — eliminates check-then-set race (#3)
+    // If a query is already running, queue this message for after it finishes
     if (!sessionManager.claimRunning(session.threadKey)) {
+      sessionManager.queueMessage(session.threadKey, { channelId, threadTs, text, files, client });
       await client.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,
-        text: ':warning: A query is already running in this thread. Tap the Stop button or react with :octagonal_sign: to cancel it.',
+        text: ':hourglass: Queued — will send after the current query finishes.',
       });
       return;
     }
@@ -163,6 +164,12 @@ export async function registerEventHandlers(
         fileHandler.cleanupTempFiles(processedFiles);
       },
     });
+
+    // Process any queued messages that arrived while running
+    const queued = sessionManager.dequeueMessage(session.threadKey);
+    if (queued) {
+      await handlePrompt(queued.channelId, queued.threadTs, queued.text, queued.files, queued.client);
+    }
   }
 
   // Track handled messages to avoid duplicate processing from message + app_mention events

@@ -8,9 +8,18 @@ interface PersistedState {
   channelCwd: Record<string, string>;
 }
 
+export interface QueuedMessage {
+  channelId: string;
+  threadTs: string;
+  text: string;
+  files: any[] | undefined;
+  client: any;
+}
+
 export class SessionManager {
   private sessions = new Map<string, ClaudeSession>();
   private channelCwd = new Map<string, string>();
+  private messageQueue = new Map<string, QueuedMessage>();
   private cleanupTimer: NodeJS.Timeout;
 
   constructor(private config: Config) {
@@ -114,6 +123,21 @@ export class SessionManager {
   setChannelCwd(channelId: string, cwd: string) {
     this.channelCwd.set(channelId, cwd);
     this.saveState();
+  }
+
+  /** Queue a message to be processed after the current query finishes */
+  queueMessage(threadKey: string, msg: QueuedMessage) {
+    // Only keep the latest queued message per thread
+    this.messageQueue.set(threadKey, msg);
+  }
+
+  /** Dequeue a pending message (returns undefined if none) */
+  dequeueMessage(threadKey: string): QueuedMessage | undefined {
+    const msg = this.messageQueue.get(threadKey);
+    if (msg) {
+      this.messageQueue.delete(threadKey);
+    }
+    return msg;
   }
 
   /** Atomically claim the running slot. Returns false if already running. (#3, #4) */
