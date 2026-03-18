@@ -6,6 +6,7 @@ const STATE_FILE = path.join(process.cwd(), '.bot-state.json');
 
 interface PersistedState {
   channelCwd: Record<string, string>;
+  sessions: Record<string, { sessionId: string; cwd: string; channelId: string; threadTs: string }>;
 }
 
 export interface QueuedMessage {
@@ -40,6 +41,22 @@ export class SessionManager {
           }
           console.log(`[session] Loaded ${this.channelCwd.size} channel CWD(s) from state`);
         }
+        if (data.sessions) {
+          for (const [key, s] of Object.entries(data.sessions)) {
+            this.sessions.set(key, {
+              threadKey: key,
+              sessionId: s.sessionId,
+              channelId: s.channelId,
+              threadTs: s.threadTs,
+              cwd: s.cwd,
+              mode: 'ask',
+              isRunning: false,
+              abortController: new AbortController(),
+              lastActivity: Date.now(),
+            });
+          }
+          console.log(`[session] Loaded ${Object.keys(data.sessions).length} session(s) from state`);
+        }
       }
     } catch (err) {
       console.warn('[session] Failed to load state:', err);
@@ -48,8 +65,22 @@ export class SessionManager {
 
   private saveState() {
     try {
+      // Persist sessions that have a sessionId (for resume)
+      const sessionsToSave: PersistedState['sessions'] = {};
+      for (const [key, s] of this.sessions) {
+        if (s.sessionId) {
+          sessionsToSave[key] = {
+            sessionId: s.sessionId,
+            cwd: s.cwd,
+            channelId: s.channelId,
+            threadTs: s.threadTs,
+          };
+        }
+      }
+
       const data: PersistedState = {
         channelCwd: Object.fromEntries(this.channelCwd),
+        sessions: sessionsToSave,
       };
       fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
     } catch (err) {
@@ -96,6 +127,7 @@ export class SessionManager {
     const session = this.sessions.get(threadKey);
     if (session) {
       session.sessionId = sessionId;
+      this.saveState();
     }
   }
 
