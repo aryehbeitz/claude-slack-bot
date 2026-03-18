@@ -8,6 +8,7 @@ import { FileHandler } from './slack/file-handler';
 import { registerEventHandlers } from './slack/event-handlers';
 import { registerActionHandlers } from './slack/action-handlers';
 import { registerSlashCommands } from './slack/commands';
+import { startTestServer } from './test-server';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 
@@ -105,6 +106,7 @@ async function main() {
   );
   registerActionHandlers(app, permissionHandler, sessionManager, messageQueue);
   registerSlashCommands(app, sessionManager, config);
+  startTestServer(queryRunner, sessionManager);
 
   // Start the app
   await app.start();

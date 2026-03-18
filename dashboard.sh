@@ -34,7 +34,7 @@ show_menu() {
         printf "\033[31m● Stopped\033[0m\n"
     fi
     echo ""
-    echo "  [s] Start    [x] Stop    [r] Restart    [c] Clear logs    [q] Quit"
+    echo "  [s] Start    [x] Stop    [r] Restart    [c] Clear logs    [t] Test    [q] Quit"
 }
 
 while true; do
@@ -50,6 +50,11 @@ while true; do
            zellij action move-focus down 2>/dev/null
            pm2 flush claude-slack-bot 2>&1
            echo "Cleared." ;;
+        t) if curl -s -m 2 -X POST http://127.0.0.1:4041/test 2>/dev/null; then
+               echo "Test triggered — check logs above."
+           else
+               echo "Test failed — restart bot: pm2 restart claude-slack-bot"
+           fi ;;
         q) zellij kill-session claude-bot 2>/dev/null; exit 0 ;;
     esac
     sleep 1

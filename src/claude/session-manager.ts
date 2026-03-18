@@ -68,6 +68,7 @@ export class SessionManager {
       // Persist sessions that have a sessionId (for resume)
       const sessionsToSave: PersistedState['sessions'] = {};
       for (const [key, s] of this.sessions) {
+        if (key.startsWith('__test__')) continue;
         if (s.sessionId) {
           sessionsToSave[key] = {
             sessionId: s.sessionId,

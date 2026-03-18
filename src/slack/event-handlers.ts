@@ -49,7 +49,6 @@ export async function registerEventHandlers(
       });
       return;
     }
-
     // Process attached files
     let processedFiles: Awaited<ReturnType<FileHandler['processFiles']>> = [];
     if (files?.length) {
