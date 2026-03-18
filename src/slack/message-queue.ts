@@ -3,6 +3,7 @@ import { MessageBuffer } from '../types';
 import { chunkText, markdownToMrkdwn } from './formatter';
 
 const MAX_MSG_LEN = 39000;
+const MAX_BLOCK_TEXT = 3000; // Slack section block text limit
 
 export class MessageQueue {
   private buffers = new Map<string, MessageBuffer>();
@@ -84,8 +85,7 @@ export class MessageQueue {
   setContent(threadKey: string, text: string) {
     const buffer = this.buffers.get(threadKey);
     if (!buffer) return;
-    // Ensure real newlines (SDK sometimes returns literal \n)
-    buffer.content = text.replace(/\\n/g, '\n');
+    buffer.content = text;
     buffer.charCount = buffer.content.length;
     buffer.dirty = true;
   }
@@ -227,55 +227,36 @@ export class MessageQueue {
     }
   }
 
+  /** Build mrkdwn section blocks from text, splitting at block size limit */
+  private textToBlocks(text: string): any[] {
+    const chunks = chunkText(text, MAX_BLOCK_TEXT);
+    return chunks.map((chunk) => ({
+      type: 'section',
+      text: { type: 'mrkdwn', text: chunk },
+    }));
+  }
+
   private async flushBuffer(threadKey: string): Promise<void> {
     this.timers.delete(threadKey);
     const buffer = this.buffers.get(threadKey);
     if (!buffer || !buffer.dirty || !buffer.messageTs) return;
 
     buffer.dirty = false;
-    const text = markdownToMrkdwn(buffer.content) || '_Processing..._';
+    const mrkdwn = markdownToMrkdwn(buffer.content) || '_Processing..._';
 
-    // If content exceeds limit, post new message and continue there
-    if (text.length > MAX_MSG_LEN) {
-      const chunks = chunkText(text, MAX_MSG_LEN);
-      // Update current message with first chunk
+    // Build blocks for rich formatting
+    const blocks = this.textToBlocks(mrkdwn);
+
+    // Slack allows max 50 blocks per message
+    if (blocks.length <= 50 && mrkdwn.length <= MAX_MSG_LEN) {
       try {
         await this.slackClient.chat.update({
           channel: buffer.channelId,
           ts: buffer.messageTs,
-          text: chunks[0],
-        });
-      } catch (err) {
-        console.error('[message-queue] Failed to update message:', err);
-      }
-
-      // Post remaining chunks as new messages, use last as new buffer target
-      for (let i = 1; i < chunks.length; i++) {
-        try {
-          const result = await this.slackClient.chat.postMessage({
-            channel: buffer.channelId,
-            thread_ts: buffer.threadTs,
-            text: chunks[i],
-          });
-          if (i === chunks.length - 1) {
-            buffer.messageTs = result.ts;
-          }
-        } catch (err) {
-          console.error('[message-queue] Failed to post chunk:', err);
-        }
-      }
-      // Reset content to just what's in the latest message
-      buffer.content = chunks[chunks.length - 1];
-      buffer.charCount = buffer.content.length;
-    } else {
-      try {
-        await this.slackClient.chat.update({
-          channel: buffer.channelId,
-          ts: buffer.messageTs,
-          text,
+          text: mrkdwn, // fallback
+          blocks,
         });
       } catch (err: any) {
-        // Handle Slack rate limits: back off and re-mark dirty so next tick retries
         if (err?.data?.error === 'ratelimited' || err?.code === 429) {
           const retryAfter = (err?.data?.response_metadata?.retry_after || 3) * 1000;
           console.warn(`[message-queue] Slack rate limited, retrying in ${retryAfter}ms`);
@@ -288,9 +269,52 @@ export class MessageQueue {
             this.timers.set(threadKey, timer);
           }
         } else {
-          console.error('[message-queue] Failed to update message:', err);
+          // Fall back to plain text if blocks fail
+          try {
+            await this.slackClient.chat.update({
+              channel: buffer.channelId,
+              ts: buffer.messageTs,
+              text: mrkdwn,
+            });
+          } catch {
+            console.error('[message-queue] Failed to update message:', err);
+          }
         }
       }
+    } else {
+      // Too large for one message — update current, post overflow as new messages
+      const firstBlocks = blocks.slice(0, 50);
+      try {
+        await this.slackClient.chat.update({
+          channel: buffer.channelId,
+          ts: buffer.messageTs,
+          text: mrkdwn.slice(0, MAX_MSG_LEN),
+          blocks: firstBlocks,
+        });
+      } catch (err) {
+        console.error('[message-queue] Failed to update message:', err);
+      }
+
+      // Post remaining blocks as new messages
+      for (let i = 50; i < blocks.length; i += 50) {
+        const chunk = blocks.slice(i, i + 50);
+        const chunkText = chunk.map((b: any) => b.text?.text || '').join('\n');
+        try {
+          const result = await this.slackClient.chat.postMessage({
+            channel: buffer.channelId,
+            thread_ts: buffer.threadTs,
+            text: chunkText,
+            blocks: chunk,
+          });
+          buffer.messageTs = result.ts;
+        } catch (err) {
+          console.error('[message-queue] Failed to post overflow:', err);
+        }
+      }
+      // Track only latest content
+      const lastChunk = blocks.slice(-50);
+      buffer.content = lastChunk.map((b: any) => b.text?.text || '').join('\n');
+      buffer.charCount = buffer.content.length;
     }
   }
 }
