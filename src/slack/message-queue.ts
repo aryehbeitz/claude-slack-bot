@@ -202,7 +202,7 @@ export class MessageQueue {
   }
 
   /** Mark the stream as errored */
-  async error(threadKey: string, errorText: string): Promise<void> {
+  async error(threadKey: string, errorText: string, rawDetail?: string): Promise<void> {
     await this.flush(threadKey);
 
     const buffer = this.buffers.get(threadKey);
@@ -210,10 +210,28 @@ export class MessageQueue {
 
     await this.removeControlMessage(buffer);
 
+    const blocks: Array<{ type: string; text?: { type: string; text: string }; elements?: unknown[] }> = [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `:x: Error: ${errorText}` },
+      },
+    ];
+    if (rawDetail) {
+      const truncated = rawDetail.slice(0, 2900);
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `\`\`\`${truncated}${rawDetail.length > 2900 ? '\n...' : ''}\`\`\``,
+        },
+      });
+    }
+
     await this.slackClient.chat.postMessage({
       channel: buffer.channelId,
       thread_ts: buffer.threadTs,
       text: `:x: Error: ${errorText}`,
+      blocks,
     });
 
     // Swap reactions

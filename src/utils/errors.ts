@@ -4,6 +4,8 @@ export interface ClassifiedError {
   emoji: string;
   retryable: boolean;
   logLevel: 'warn' | 'error';
+  /** Raw error detail to show in Slack when userMessage is a summary */
+  rawDetail?: string;
 }
 
 export function classifyError(err: any): ClassifiedError {
@@ -38,6 +40,7 @@ export function classifyError(err: any): ClassifiedError {
       emoji: ':key:',
       retryable: false,
       logLevel: 'error',
+      rawDetail: msg.slice(0, 1000),
     };
   }
 
@@ -149,15 +152,17 @@ export function classifyError(err: any): ClassifiedError {
       emoji: ':warning:',
       retryable: true,
       logLevel: 'error',
+      rawDetail: msg.slice(0, 1000),
     };
   }
 
-  // Unknown
+  // Unknown — show summary + full error in rawDetail for debugging
   return {
-    userMessage: `Unexpected error: ${msg.slice(0, 200)}`,
+    userMessage: 'Unexpected error (see details below)',
     emoji: ':x:',
     retryable: false,
     logLevel: 'error',
+    rawDetail: msg,
   };
 }
 

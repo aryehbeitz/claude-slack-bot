@@ -1,4 +1,4 @@
-import { query, type MessageEvent } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeSession, Config } from '../types';
 import { PermissionHandler } from './permission-handler';
 import { SessionManager } from './session-manager';
@@ -24,6 +24,7 @@ export class QueryRunner {
     prompt: string,
     callbacks: QueryCallbacks
   ): Promise<void> {
+    const isResuming = !!session.sessionId;
     try {
       const options: Record<string, unknown> = {
         abortController: session.abortController,
@@ -51,7 +52,7 @@ export class QueryRunner {
         const msg = message as any;
 
         if (process.env.DEBUG) {
-          this.logMessage(msg);
+          this.logMessage(msg, isResuming);
         }
 
         // Extract session_id for session resume
@@ -59,8 +60,22 @@ export class QueryRunner {
           this.sessionManager.updateSessionId(session.threadKey, msg.session_id);
         }
 
-        // Extract final result
+        // Extract final result — handle error results (SDK sends these instead of throwing)
         if (msg.type === 'result') {
+          const isError =
+            msg.is_error ||
+            (typeof msg.subtype === 'string' && msg.subtype.startsWith('error_'));
+          if (isError) {
+            const errors = Array.isArray(msg.errors) ? msg.errors : [];
+            const errorMsg =
+              errors.length > 0
+                ? errors.join('\n')
+                : msg.subtype || 'Query failed';
+            const error = new Error(`:x: ${errorMsg}`);
+            (error as Error & { rawDetail?: string }).rawDetail = errorMsg;
+            await callbacks.onError(error);
+            return;
+          }
           resultText = msg.result || '';
           continue;
         }
@@ -126,22 +141,24 @@ export class QueryRunner {
       }
 
       await callbacks.onComplete(resultText);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const classified = classifyError(err);
       console[classified.logLevel](
         `[query-runner] ${classified.emoji} ${classified.userMessage}`,
-        err?.message || err
+        err instanceof Error ? err.message : String(err)
       );
-      await callbacks.onError(
-        new Error(`${classified.emoji} ${classified.userMessage}`)
-      );
+      const error = new Error(`${classified.emoji} ${classified.userMessage}`);
+      if (classified.rawDetail) {
+        (error as Error & { rawDetail?: string }).rawDetail = classified.rawDetail;
+      }
+      await callbacks.onError(error);
     } finally {
       this.sessionManager.setRunning(session.threadKey, false);
     }
   }
 
   /** Pretty-print SDK messages like Claude's live thinking */
-  private logMessage(msg: any) {
+  private logMessage(msg: { type?: string; subtype?: string; session_id?: string; cwd?: string; message?: { content?: Array<{ type?: string; thinking?: string; text?: string; name?: string; input?: Record<string, unknown> }> }; tool_use_result?: { stdout?: string }; duration_ms?: number; total_cost_usd?: number; num_turns?: string }, isResuming: boolean) {
     const dim = '\x1b[2m';
     const reset = '\x1b[0m';
     const bold = '\x1b[1m';
@@ -151,7 +168,8 @@ export class QueryRunner {
     const magenta = '\x1b[35m';
 
     if (msg.type === 'system' && msg.subtype === 'init') {
-      console.log(`${cyan}● Session started${reset} ${dim}${msg.session_id}${reset}`);
+      const label = isResuming ? 'Session continued' : 'Session started';
+      console.log(`${cyan}● ${label}${reset} ${dim}${msg.session_id}${reset}`);
       console.log(`  ${dim}cwd: ${msg.cwd}${reset}`);
     } else if (msg.type === 'assistant' && msg.message?.content) {
       for (const block of msg.message.content) {

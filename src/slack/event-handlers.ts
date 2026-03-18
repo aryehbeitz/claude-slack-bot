@@ -197,8 +197,13 @@ export async function registerEventHandlers(
         }
       },
 
-      async onError(error) {
-        await messageQueue.error(session.threadKey, error.message || 'Unknown error');
+      async onError(error: Error & { rawDetail?: string }) {
+        const rawDetail = error.rawDetail;
+        await messageQueue.error(
+          session.threadKey,
+          error.message || 'Unknown error',
+          rawDetail
+        );
         fileHandler.cleanupTempFiles(processedFiles);
       },
     });
