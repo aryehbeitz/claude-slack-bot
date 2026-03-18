@@ -48,7 +48,7 @@ export class MessageQueue {
           elements: [
             {
               type: 'button',
-              text: { type: 'plain_text', text: ':stop_sign: Stop' },
+              text: { type: 'plain_text', text: 'Stop' },
               style: 'danger',
               action_id: `stop_query_${threadKey}`,
               value: threadKey,
