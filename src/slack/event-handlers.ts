@@ -80,6 +80,8 @@ export async function registerEventHandlers(
     let fullResponseText = '';
     // Track tool usage for summary
     const toolUsage: { name: string; detail: string }[] = [];
+    // Track AskUserQuestion tool calls
+    let pendingQuestionText = '';
 
     // Run the query
     await queryRunner.run(session, text, {
@@ -95,6 +97,15 @@ export async function registerEventHandlers(
           name: toolName,
           detail: (toolInput as any).command || (toolInput as any).file_path || (toolInput as any).pattern || '',
         });
+
+        // Handle AskUserQuestion specially — show as interactive question
+        if (toolName === 'AskUserQuestion') {
+          const question = (toolInput as any).question || (toolInput as any).prompt || '';
+          if (question) {
+            pendingQuestionText = question;
+          }
+        }
+
         if (config.showToolCalls) {
           await messageQueue.flush(session.threadKey);
           const formatted = formatToolUse(toolName, toolInput);
@@ -143,18 +154,41 @@ export async function registerEventHandlers(
           });
         }
 
-        // Detect questions and post interactive buttons
+        // Detect questions — from response text or AskUserQuestion tool
         const responseToCheck = resultText || fullResponseText || '';
-        const questions = detectQuestions(responseToCheck);
+        let questions = detectQuestions(responseToCheck);
+
+        // If no numbered questions found but AskUserQuestion was used, show it directly
+        if (questions.length === 0 && pendingQuestionText) {
+          // Try to detect questions from the AskUserQuestion text
+          questions = detectQuestions(pendingQuestionText);
+        }
+
         if (questions.length > 0) {
           const { blocks, answerMap } = buildQuestionBlocks(questions, session.threadKey);
-          // Store answer map on session for action handler
           (session as any).pendingAnswers = answerMap;
           await client.chat.postMessage({
             channel: channelId,
             thread_ts: threadTs,
             text: 'Quick replies:',
             blocks,
+          });
+        } else if (pendingQuestionText) {
+          // AskUserQuestion with free-form question — just post it
+          await client.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: pendingQuestionText,
+            blocks: [
+              {
+                type: 'section',
+                text: { type: 'mrkdwn', text: `:question: ${pendingQuestionText}`.slice(0, 3000) },
+              },
+              {
+                type: 'context',
+                elements: [{ type: 'mrkdwn', text: '_Reply in the thread to answer_' }],
+              },
+            ],
           });
         }
       },
