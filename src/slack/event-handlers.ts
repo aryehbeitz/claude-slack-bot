@@ -106,8 +106,12 @@ export async function registerEventHandlers(
           }
         }
 
+        if (config.showStreaming) {
+          // Finalize current message and start fresh for next turn
+          await messageQueue.finalizeAndStartNew(session.threadKey, channelId, threadTs);
+        }
+
         if (config.showToolCalls) {
-          await messageQueue.flush(session.threadKey);
           const formatted = formatToolUse(toolName, toolInput);
           await messageQueue.postInThread(session.threadKey, formatted);
         }

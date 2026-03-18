@@ -90,6 +90,43 @@ export class MessageQueue {
     buffer.dirty = true;
   }
 
+  /** Finalize current message content and start a new message for the next turn */
+  async finalizeAndStartNew(
+    threadKey: string,
+    channelId: string,
+    threadTs: string
+  ): Promise<void> {
+    const buffer = this.buffers.get(threadKey);
+    if (!buffer) return;
+
+    // If there's content, flush it as a final message
+    if (buffer.content.trim()) {
+      await this.flush(threadKey);
+    } else {
+      // Remove empty "Thinking..." message
+      if (buffer.messageTs) {
+        try {
+          await this.slackClient.chat.delete({
+            channel: buffer.channelId,
+            ts: buffer.messageTs,
+          });
+        } catch {}
+      }
+    }
+
+    // Start a new message for the next turn
+    const result = await this.slackClient.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: ':hourglass_flowing_sand: Working...',
+    });
+
+    buffer.messageTs = result.ts;
+    buffer.content = '';
+    buffer.charCount = 0;
+    buffer.dirty = false;
+  }
+
   /** Append text to the buffer */
   appendText(threadKey: string, text: string) {
     const buffer = this.buffers.get(threadKey);

@@ -60,9 +60,33 @@ DEFAULT_CWD=/path/to/your/projects
 
 ```bash
 npm install
-npm run dev    # Development (auto-reload on file changes)
+```
+
+**Development (pick one):**
+
+```bash
+npm run dev          # tsx watch — auto-reload, logs in terminal
 # or
-npm run build && npm start  # Production
+npm run pm2          # pm2 — auto-reload, background process, shared logs
+npm run pm2:logs     # Tail logs (anyone can run this)
+```
+
+**pm2 commands:**
+
+| Command | Description |
+|---|---|
+| `npm run pm2` | Start the bot (watches `src/`, auto-restarts on changes or crashes) |
+| `npm run pm2:logs` | Tail live logs |
+| `npm run pm2:stop` | Stop the bot |
+| `npm run pm2:restart` | Restart manually |
+| `npm run pm2:status` | Check if running |
+
+pm2 runs in the background so you can close the terminal. Logs are at `~/.pm2/logs/claude-slack-bot-*.log`.
+
+**Production:**
+
+```bash
+npm run build && npm start
 ```
 
 ### 5. Use
