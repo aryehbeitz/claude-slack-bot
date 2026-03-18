@@ -13,14 +13,27 @@ export function detectQuestions(text: string): DetectedQuestion[] {
   const questions: DetectedQuestion[] = [];
 
   const lines = text.split('\n');
+  let bulletNum = 0;
+
   for (const line of lines) {
-    // Match: "1. Should I refactor both?"
-    // Match: "1. **Scope** — Do you want to..."
-    const match = line.match(/^\s*(\d+)\.\s+(.+?\?)\s*$/);
-    if (match) {
+    // Match numbered: "1. Should I refactor both?"
+    // Match numbered: "1. **Scope** — Do you want to..."
+    const numMatch = line.match(/^\s*(\d+)\.\s+(.+?\?)\s*$/);
+    if (numMatch) {
       questions.push({
-        num: parseInt(match[1]),
-        fullText: match[2].trim(),
+        num: parseInt(numMatch[1]),
+        fullText: numMatch[2].trim(),
+      });
+      continue;
+    }
+
+    // Match bullet points: "- Consolidate the scattered maps into...?"
+    const bulletMatch = line.match(/^\s*[-*]\s+(.+?\?)\s*$/);
+    if (bulletMatch) {
+      bulletNum++;
+      questions.push({
+        num: bulletNum,
+        fullText: bulletMatch[1].trim(),
       });
     }
   }
